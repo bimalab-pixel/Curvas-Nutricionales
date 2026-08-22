@@ -58,7 +58,9 @@
             --primary-dark: #084c41;
             --success: #10b981;
             --warning: #f59e0b;
+            --warning-mid: #f97316;
             --danger: #ef4444;
+            --danger-severe: #991b1b;
             --light: #f3f4f6;
             --light2: #e5e7eb;
             --border: #d1d5db;
@@ -408,7 +410,7 @@
         /* ═══════════════════════════════════════════ BÚSQUEDA ═══════════════════════════════════════════ */
         .stat-btn-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(3, 1fr);
             gap: 0.6rem;
             margin: 1.2rem 0;
         }
@@ -452,6 +454,10 @@
         .stat-normal .stat-btn-value { color: var(--success); }
         .stat-alerta .stat-btn-value { color: var(--warning); }
         .stat-riesgo .stat-btn-value { color: var(--danger); }
+        .stat-obesidad .stat-btn-value { color: var(--danger); }
+        .stat-sobrepeso .stat-btn-value { color: var(--warning); }
+        .stat-desnutrido .stat-btn-value { color: var(--warning-mid); }
+        .stat-desnutrido-severo .stat-btn-value { color: var(--danger-severe); }
 
         .stat-btn-label {
             font-size: 0.7rem;
@@ -2537,17 +2543,25 @@
                     <span class="stat-btn-value" id="totalPersonas">0</span>
                     <span class="stat-btn-label">Total</span>
                 </button>
+                <button type="button" class="stat-btn stat-obesidad" onclick="irAPersonasFiltrado('obesidad')">
+                    <span class="stat-btn-value" id="estadoObesidad">0</span>
+                    <span class="stat-btn-label">🔴 Obesidad</span>
+                </button>
+                <button type="button" class="stat-btn stat-sobrepeso" onclick="irAPersonasFiltrado('sobrepeso')">
+                    <span class="stat-btn-value" id="estadoSobrepeso">0</span>
+                    <span class="stat-btn-label">🟡 Sobrepeso</span>
+                </button>
                 <button type="button" class="stat-btn stat-normal" onclick="irAPersonasFiltrado('normal')">
                     <span class="stat-btn-value" id="estadoNormal">0</span>
                     <span class="stat-btn-label">🟢 Normal</span>
                 </button>
-                <button type="button" class="stat-btn stat-alerta" onclick="irAPersonasFiltrado('alerta')">
-                    <span class="stat-btn-value" id="estadoAlerta">0</span>
-                    <span class="stat-btn-label">🟡 Alerta</span>
+                <button type="button" class="stat-btn stat-desnutrido" onclick="irAPersonasFiltrado('desnutrido')">
+                    <span class="stat-btn-value" id="estadoDesnutrido">0</span>
+                    <span class="stat-btn-label">🟠 Desnutrido</span>
                 </button>
-                <button type="button" class="stat-btn stat-riesgo" onclick="irAPersonasFiltrado('riesgo')">
-                    <span class="stat-btn-value" id="estadoRiesgo">0</span>
-                    <span class="stat-btn-label">🔴 Riesgo</span>
+                <button type="button" class="stat-btn stat-desnutrido-severo" onclick="irAPersonasFiltrado('desnutridoSevero')">
+                    <span class="stat-btn-value" id="estadoDesnutridoSevero">0</span>
+                    <span class="stat-btn-label">🟤 Desnutrido Severo</span>
                 </button>
             </div>
 
@@ -2979,9 +2993,9 @@
                 <details class="guia-seccion">
                     <summary>📈 Dashboard</summary>
                     <div class="guia-seccion-cuerpo">
-                        <p>Muestra un resumen de todas las personas registradas: cuántas están en estado <strong>Normal</strong>, en <strong>Alerta</strong> o en <strong>Riesgo</strong>.</p>
+                        <p>Muestra un resumen de todas las personas registradas: cuántas están en <strong>Obesidad</strong>, <strong>Sobrepeso</strong>, <strong>Normal</strong>, <strong>Desnutrido</strong> o <strong>Desnutrido Severo</strong>.</p>
                         <ul>
-                            <li>Toca una de las 4 tarjetitas (Total/Normal/Alerta/Riesgo) para ir a la lista de Personas ya filtrada por ese estado.</li>
+                            <li>Toca una de las 6 tarjetitas (Total/Obesidad/Sobrepeso/Normal/Desnutrido/Desnutrido Severo) para ir a la lista de Personas ya filtrada por ese estado.</li>
                             <li>Usa el buscador para encontrar a alguien directamente en la tabla.</li>
                             <li>El ícono 👁️ abre el perfil; el ícono 📈 te lleva directo a su curva de crecimiento (solo disponible para 0-19 años).</li>
                         </ul>
@@ -4228,6 +4242,22 @@
             return { estado: c.estado, clase: c.clase, esOMS: false, imc: c.imc, meses, esPrematuro };
         }
 
+        // ─── Agrupa cualquier resultado de evaluarEstadoNutricional() en las 5
+        // categorías del dashboard: Obesidad, Sobrepeso, Normal, Desnutrido,
+        // Desnutrido Severo. Combina indicadores de niños (Peso/Edad, Talla/Edad,
+        // Peso/Talla, IMC/Edad) y de adultos (IMC) bajo el mismo criterio.
+        // Devuelve null cuando no hay datos suficientes (no cuenta en ninguna tarjeta).
+        function categoriaNutricionalDashboard(clasificacion) {
+            if (!clasificacion || !clasificacion.estado) return null;
+            const e = clasificacion.estado;
+            if (e === 'Sin datos' || e.startsWith('Faltan datos')) return null;
+            if (e === 'Desnutrición severa' || e === 'Retardo severo en el crecimiento') return 'desnutridoSevero';
+            if (e === 'Desnutrición' || e === 'Retardo en el crecimiento' || e === 'Peso bajo') return 'desnutrido';
+            if (e === 'Obesidad') return 'obesidad';
+            if (e === 'Sobrepeso' || e === 'Peso alto para la edad') return 'sobrepeso';
+            return 'normal'; // 'Normal', 'Talla alta', etc.
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // BASE DE DATOS
         // ═══════════════════════════════════════════════════════════════
@@ -4520,7 +4550,7 @@
                 arr = arr.filter(p => {
                     const medicion = obtenerUltimaMedicion(p.id);
                     const c = evaluarEstadoNutricional(p, medicion);
-                    return c.clase === filtroEstadoPersonas;
+                    return categoriaNutricionalDashboard(c) === filtroEstadoPersonas;
                 });
             }
             const signo = ordenPersonas.direccion === 'asc' ? 1 : -1;
@@ -4673,7 +4703,7 @@
             const el = document.getElementById('filtroEstadoBanner');
             if (!el) return;
             if (!filtroEstadoPersonas) { el.innerHTML = ''; return; }
-            const etiquetas = { normal: '🟢 Normal', alerta: '🟡 Alerta', riesgo: '🔴 Riesgo' };
+            const etiquetas = { obesidad: '🔴 Obesidad', sobrepeso: '🟡 Sobrepeso', normal: '🟢 Normal', desnutrido: '🟠 Desnutrido', desnutridoSevero: '🟤 Desnutrido Severo' };
             el.innerHTML = `<div class="filtro-chip">
                 <span>Filtrando por estado: <strong>${etiquetas[filtroEstadoPersonas] || filtroEstadoPersonas}</strong></span>
                 <button type="button" onclick="quitarFiltroEstado()" title="Quitar filtro">✕</button>
@@ -4700,7 +4730,7 @@
                 arr = arr.filter(p => {
                     const medicion = obtenerUltimaMedicion(p.id);
                     const c = evaluarEstadoNutricional(p, medicion);
-                    return c.clase === filtroEstadoPersonas;
+                    return categoriaNutricionalDashboard(c) === filtroEstadoPersonas;
                 });
             }
             return arr;
@@ -5459,9 +5489,11 @@
                 let estado = '—';
                 let peso = '—';
                 let talla = '—';
+                let fechaMedicion = '—';
                 if (medicion) {
                     peso = medicion.peso != null ? medicion.peso + ' kg' : '—';
                     talla = medicion.talla != null ? medicion.talla + ' cm' : '—';
+                    fechaMedicion = medicion.fecha ? formatearFechaSV(medicion.fecha, { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
                     const c = evaluarEstadoNutricional(persona, medicion);
                     estado = c.estado || '—';
                 } else {
@@ -5475,6 +5507,7 @@
                     persona.direccion || '—',
                     peso,
                     talla,
+                    fechaMedicion,
                     estado
                 ];
             });
@@ -5535,13 +5568,14 @@
                     <td>${_escaparHTML(f[4])}</td>
                     <td style="text-align:center;">${_escaparHTML(f[5])}</td>
                     <td style="text-align:center;">${_escaparHTML(f[6])}</td>
-                    <td>${_escaparHTML(f[7])}</td>
+                    <td style="text-align:center;">${_escaparHTML(f[7])}</td>
+                    <td>${_escaparHTML(f[8])}</td>
                 </tr>
             `).join('');
             return `
                 <div style="font-size:10px; font-weight:700; margin-bottom:4px;">Detalle de personas</div>
                 <table class="print-table">
-                    <thead><tr><th>N°</th><th>Nombre</th><th>Fecha Nac.</th><th>Edad</th><th>Dirección</th><th>Peso</th><th>Talla</th><th>Estado Nutricional</th></tr></thead>
+                    <thead><tr><th>N°</th><th>Nombre</th><th>Fecha Nac.</th><th>Edad</th><th>Dirección</th><th>Peso</th><th>Talla</th><th>Fecha Medición</th><th>Estado Nutricional</th></tr></thead>
                     <tbody>${filasHtml}</tbody>
                 </table>
             `;
@@ -5576,8 +5610,17 @@
 
         function mostrarDashboard(resetPagina = true) {
             if (resetPagina) dashboardVisibles = DASHBOARD_LOTE;
-            let normal = 0, alerta = 0, riesgo = 0;
+            let obesidad = 0, sobrepeso = 0, normal = 0, desnutrido = 0, desnutridoSevero = 0;
             const container = document.getElementById('dashboardCards');
+
+            function pintarContadores() {
+                document.getElementById('totalPersonas').textContent = DB.personas.length;
+                document.getElementById('estadoObesidad').textContent = obesidad;
+                document.getElementById('estadoSobrepeso').textContent = sobrepeso;
+                document.getElementById('estadoNormal').textContent = normal;
+                document.getElementById('estadoDesnutrido').textContent = desnutrido;
+                document.getElementById('estadoDesnutridoSevero').textContent = desnutridoSevero;
+            }
 
             if (DB.personas.length === 0) {
                 container.innerHTML = `
@@ -5587,22 +5630,23 @@
                         <p>Agrega personas y registra mediciones para ver el dashboard.</p>
                     </div>
                 `;
-                document.getElementById('totalPersonas').textContent = '0';
-                document.getElementById('estadoNormal').textContent = '0';
-                document.getElementById('estadoAlerta').textContent = '0';
-                document.getElementById('estadoRiesgo').textContent = '0';
+                pintarContadores();
                 return;
             }
 
-            // Los contadores (Total/Normal/Alerta/Riesgo) siempre reflejan a
-            // TODAS las personas, sin importar el filtro de búsqueda del
-            // dashboard, para que las tarjetas de resumen no varíen al escribir.
+            // Los contadores (Total/Obesidad/Sobrepeso/Normal/Desnutrido/Desnutrido
+            // Severo) siempre reflejan a TODAS las personas, sin importar el filtro
+            // de búsqueda del dashboard, para que las tarjetas de resumen no varíen
+            // al escribir.
             DB.personas.forEach(persona => {
                 const medicion = obtenerUltimaMedicion(persona.id);
                 const clasificacion = evaluarEstadoNutricional(persona, medicion);
-                if (clasificacion.clase === 'normal') normal++;
-                else if (clasificacion.clase === 'alerta') alerta++;
-                else if (clasificacion.clase === 'riesgo' || clasificacion.clase === 'obese' || clasificacion.clase === 'overweight') riesgo++;
+                const categoria = categoriaNutricionalDashboard(clasificacion);
+                if (categoria === 'obesidad') obesidad++;
+                else if (categoria === 'sobrepeso') sobrepeso++;
+                else if (categoria === 'normal') normal++;
+                else if (categoria === 'desnutrido') desnutrido++;
+                else if (categoria === 'desnutridoSevero') desnutridoSevero++;
             });
 
             const termino = (filtroDashboard || '').trim().toLowerCase();
@@ -5616,10 +5660,7 @@
                         <p>No hay personas que coincidan con la búsqueda.</p>
                     </div>
                 `;
-                document.getElementById('totalPersonas').textContent = DB.personas.length;
-                document.getElementById('estadoNormal').textContent = normal;
-                document.getElementById('estadoAlerta').textContent = alerta;
-                document.getElementById('estadoRiesgo').textContent = riesgo;
+                pintarContadores();
                 return;
             }
 
@@ -5695,9 +5736,11 @@
             }
 
             document.getElementById('totalPersonas').textContent = DB.personas.length;
+            document.getElementById('estadoObesidad').textContent = obesidad;
+            document.getElementById('estadoSobrepeso').textContent = sobrepeso;
             document.getElementById('estadoNormal').textContent = normal;
-            document.getElementById('estadoAlerta').textContent = alerta;
-            document.getElementById('estadoRiesgo').textContent = riesgo;
+            document.getElementById('estadoDesnutrido').textContent = desnutrido;
+            document.getElementById('estadoDesnutridoSevero').textContent = desnutridoSevero;
         }
 
         function cargarMasDashboard() {
@@ -8034,3 +8077,4 @@
 
 </body>
 </html>
+
