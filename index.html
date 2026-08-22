@@ -2955,7 +2955,15 @@
         function edadEnMesesDecimal(fechaNacimiento, fechaRef) {
             const nacimiento = parsearFechaLocal(fechaNacimiento);
             const ref = fechaRef ? parsearFechaLocal(fechaRef) : ahoraElSalvador();
-            return (ref - nacimiento) / (1000 * 60 * 60 * 24) / 30.4375;
+            let meses = (ref.getFullYear() - nacimiento.getFullYear()) * 12 + (ref.getMonth() - nacimiento.getMonth());
+            let diffDias = ref.getDate() - nacimiento.getDate();
+            if (diffDias < 0) {
+                meses -= 1;
+                // Días del mes anterior al de la fecha de referencia (para la fracción)
+                diffDias += new Date(ref.getFullYear(), ref.getMonth(), 0).getDate();
+            }
+            const diasEnMesRef = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+            return meses + diffDias / diasEnMesRef;
         }
 
         // Interpola linealmente una tabla LMS indexada por mes, comenzando en 'mesInicio'
@@ -3263,7 +3271,7 @@
         function indicadoresParaEdadMeses(meses) {
             if (meses < 24) return ['wfa', 'lhfa'];
             if (meses < 61) return ['wfa', 'lhfa', 'pt'];
-            if (meses <= 228) return ['lhfa', 'imc'];
+            if (meses < 240) return ['lhfa', 'imc'];
             return ['imcAdulto'];
         }
 
@@ -3295,7 +3303,7 @@
             if (!fechaNacStr) { previewEl.textContent = ''; return; }
             const meses = edadEnMesesDecimal(fechaNacStr, fechaMedStr || formatearFechaISO(ahoraElSalvador()));
             if (meses < 0) { previewEl.textContent = '⚠️ La fecha de medición es anterior al nacimiento'; return; }
-            if (meses > 228) { previewEl.textContent = `⚠️ ${formatearEdadDesdeMeses(meses)} — fuera del rango 0-19 años`; return; }
+            if (meses >= 240) { previewEl.textContent = `⚠️ ${formatearEdadDesdeMeses(meses)} — fuera del rango 0-19 años`; return; }
             previewEl.textContent = `🎂 Edad: ${formatearEdadDesdeMeses(meses)}`;
         }
 
@@ -3387,7 +3395,7 @@
 
             const edadMeses = edadEnMesesDecimal(fechaNacStr, fechaMedStr);
             if (edadMeses < 0) { alert('❌ La fecha de medición no puede ser anterior a la fecha de nacimiento'); return; }
-            if (edadMeses > 228) { alert('⚠️ Esta calculadora aplica de 0 a 19 años. Para 19 años en adelante usa la Calculadora de Adultos.'); return; }
+            if (edadMeses >= 240) { alert('⚠️ Esta calculadora aplica de 0 a 19 años 11 meses. Para 20 años en adelante usa la Calculadora de Adultos.'); return; }
             if (edadMeses >= 60 && (!talla || talla <= 0)) { alert('⚠️ Para 5 años o más, la talla es requerida'); return; }
 
             const esPrematuro = document.querySelector(`input[name="${prefix}EsPrematuro"]:checked`).value === 'si';
@@ -3571,9 +3579,15 @@
             }
 
             const cont = document.getElementById(simPedPrefixActual + 'ChartContainer');
-            if (cont) cont.innerHTML = svgHtml;
+            if (cont) {
+                cont.innerHTML = svgHtml;
+                setTimeout(() => agregarInteractividadPuntos(cont), 200);
+            }
             const fsInner = document.getElementById('simPedFullscreenInner');
-            if (fsInner && svgHtmlFs) fsInner.innerHTML = svgHtmlFs;
+            if (fsInner && svgHtmlFs) {
+                fsInner.innerHTML = svgHtmlFs;
+                setTimeout(() => agregarInteractividadPuntos(fsInner), 200);
+            }
         }
 
         function simPedRenderThrottled() {
@@ -4031,7 +4045,7 @@
             }
             
             // NIÑOS Y ADOLESCENTES 5-19 AÑOS (61-228 meses): Talla/Edad + IMC/Edad (Tabla 2, Acuerdo 2827)
-            if (meses > 60.5 && meses <= 228 && medicion.talla) {
+            if (meses > 60.5 && meses < 240 && medicion.talla) {
                 const zte = zTallaEdad(medicion.talla, meses, persona.sexo);
                 const te = { ...clasificarTE(zte, true), z: zte, indicador: 'Talla/Edad' };
                 
@@ -4976,7 +4990,7 @@
             { 
                 nombre: 'Adolescentes de 12 a 19 años', 
                 minMeses: 144, 
-                maxMeses: 228,
+                maxMeses: 239,
                 indicador: 'OMS5-19'
             },
             { 
@@ -5086,11 +5100,11 @@
                     }
                 } 
                 // ═══════════════════════════════════════════════════════════
-                // PARA ADOLESCENTES 12-19 AÑOS (144-228 meses)
+                // PARA ADOLESCENTES 12-19 AÑOS (144-239 meses)
                 // ═══════════════════════════════════════════════════════════
                 // CON diferencia entre Sobrepeso y Obesidad
                 // Indicadores: TE + IMC/Edad
-                else if (meses <= 228) {
+                else if (meses < 240) {
                     // OBESIDAD
                     if (estado === 'Obesidad' || 
                         (z && z > 2 && (estado === 'Obesidad' || estado.includes('Obesidad')))) {
@@ -5123,7 +5137,7 @@
                     }
                 }
                 // ═══════════════════════════════════════════════════════════
-                // PARA ADULTOS 20+ AÑOS (>228 meses)
+                // PARA ADULTOS 20+ AÑOS (240+ meses)
                 // ═══════════════════════════════════════════════════════════
                 else {
                     if (estado === 'Obesidad') {
@@ -5390,14 +5404,14 @@
             const grupo = GRUPOS_REPORTE[idx];
             if (!grupo) return;
             document.getElementById('printArea').innerHTML = _htmlReporteGrupo(grupo);
-            setTimeout(() => window.print(), 50);
+            setTimeout(() => window.print(), 200);
         }
 
         function imprimirTodosGrupos() {
             if (DB.personas.length === 0) { alert('No hay datos para reportar.'); return; }
             const html = GRUPOS_REPORTE.map(grupo => _htmlReporteGrupo(grupo)).join('');
             document.getElementById('printArea').innerHTML = html;
-            setTimeout(() => window.print(), 50);
+            setTimeout(() => window.print(), 200);
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -5548,9 +5562,9 @@
 
         const INDICADOR_CONFIG = {
             wfa:  { titulo: 'Peso para la Edad', xLabel: 'Edad', yLabel: 'Peso (kg)', unidad: 'kg', maxMeses: 60 },
-            lhfa: { titulo: 'Talla para la Edad', xLabel: 'Edad', yLabel: 'Talla (cm)', unidad: 'cm', maxMeses: 228 },
+            lhfa: { titulo: 'Talla para la Edad', xLabel: 'Edad', yLabel: 'Talla (cm)', unidad: 'cm', maxMeses: 239 },
             pt:   { titulo: 'Peso para la Talla', xLabel: 'Talla (cm)', yLabel: 'Peso (kg)', unidad: 'kg' },
-            imc:  { titulo: 'IMC para la Edad', xLabel: 'Edad', yLabel: 'IMC (kg/m²)', unidad: 'kg/m²', maxMeses: 228 }
+            imc:  { titulo: 'IMC para la Edad', xLabel: 'Edad', yLabel: 'IMC (kg/m²)', unidad: 'kg/m²', maxMeses: 239 }
         };
 
         // Etiqueta y orden de pestañas de indicador según el grupo de edad ACTUAL de la
@@ -5576,8 +5590,8 @@
                 : calcularEdadEnMeses(persona.fechaNacimiento);
             if (meses < 24) return ['wfa', 'lhfa'];
             if (meses < 61) return ['wfa', 'lhfa', 'pt'];
-            if (meses <= 228) return ['lhfa', 'imc'];
-            // Adultos y adultos mayores (>19 años): no usan indicadores OMS
+            if (meses < 240) return ['lhfa', 'imc'];
+            // Adultos y adultos mayores (20+ años): no usan indicadores OMS
             // pediátricos (lhfa/imc con Z-score), sino IMC clasificado por
             // categoría adulta (evaluarEstadoNutricional -> esOMS:false).
             return ['imcAdulto'];
@@ -5632,7 +5646,7 @@
                     <span class="alert-icon">${icono}</span>
                     <div>
                         <strong>Estado Actual: ${clasificacion.estado}</strong>
-                        <p>${clasificacion.esOMS ? 'Clasificación OMS/MINSAL 2022' : (clasificacion.meses != null && clasificacion.meses <= 228 ? 'Evaluación 5-19 años' : (clasificacion.imc != null ? 'IMC: ' + clasificacion.imc.toFixed(1) : 'Requiere talla registrada'))}</p>
+                        <p>${clasificacion.esOMS ? 'Clasificación OMS/MINSAL 2022' : (clasificacion.meses != null && clasificacion.meses < 240 ? 'Evaluación 5-19 años' : (clasificacion.imc != null ? 'IMC: ' + clasificacion.imc.toFixed(1) : 'Requiere talla registrada'))}</p>
                     </div>
                 </div>
             `;
@@ -5650,11 +5664,26 @@
             } else if (indicador === 'lhfa') {
                 segs.push({ tabla: tablaSexo(LHFA_B, LHFA_G, sexo), mesInicio: 0, mesFin: 60 });
                 if (xMax > 60) segs.push({ tabla: tablaSexo(HFA519_B, HFA519_G, sexo), mesInicio: 61, mesFin: 228 });
+                if (xMax > 228) segs.push(segmentoExtendidoPlano(tablaSexo(HFA519_B, HFA519_G, sexo), xMax));
             } else {
                 segs.push({ tabla: tablaSexo(BMIFA05_B, BMIFA05_G, sexo), mesInicio: 0, mesFin: 60 });
                 if (xMax > 60) segs.push({ tabla: tablaSexo(BMIFA519_B, BMIFA519_G, sexo), mesInicio: 61, mesFin: 228 });
+                if (xMax > 228) segs.push(segmentoExtendidoPlano(tablaSexo(BMIFA519_B, BMIFA519_G, sexo), xMax));
             }
             return segs;
+        }
+
+        // Las tablas LMS oficiales OMS (Growth Reference 2007) terminan en el mes 228
+        // (19 años exactos). Para poder seguir clasificando/graficando a jóvenes de
+        // 19 años y algunos meses (hasta cumplir 20), se extiende la curva de forma
+        // PLANA repitiendo el último punto oficial (mes 228) como aproximación —
+        // no hay datos OMS más allá de esa edad, así que no se interpola nada nuevo,
+        // solo se mantiene visible la última referencia conocida.
+        function segmentoExtendidoPlano(tablaOriginal, xMax) {
+            const ultimaFila = tablaOriginal[tablaOriginal.length - 1];
+            const filas = [];
+            for (let m = 229; m <= xMax; m++) filas.push(ultimaFila);
+            return { tabla: filas, mesInicio: 229, mesFin: xMax };
         }
 
         function curvaZscore(indicador, sexo, zLevels, xMax, xMin) {
@@ -5722,9 +5751,28 @@
         // Se usa para bloquear el intento de graficar a un adulto (que
         // llegaría aquí solo si se le selecciona desde el buscador, ya que
         // en su lista aparece marcado "— fuera de rango OMS").
+        //
+        // IMPORTANTE: usa la edad en la ÚLTIMA MEDICIÓN REGISTRADA (no la edad
+        // de "hoy"), para que coincida con el criterio que ya usan
+        // evaluarEstadoNutricional()/indicadoresParaPersona() al decidir si el
+        // perfil muestra el mini-gráfico OMS. Sin esto, alguien cuya última
+        // medición fue tomada siendo adolescente (p. ej. a los 19a) pero que
+        // hoy ya cumplió 20 años seguiría viendo el botón "Ver curva completa"
+        // en su perfil, y al tocarlo caía en un bloqueo "Fuera de rango OMS"
+        // contradictorio. Si se le registra una medición nueva ya de adulto,
+        // esa pasa a ser la "última medición" y el sistema lo trata como
+        // adulto de forma consistente en todos lados.
+        function edadRelevanteOMS(persona) {
+            const ultima = obtenerUltimaMedicion(persona.id);
+            if (ultima) {
+                return ultima.edadEvaluacion != null ? ultima.edadEvaluacion : edadEnMesesDecimal(persona.fechaNacimiento, ultima.fecha);
+            }
+            return calcularEdadEnMeses(persona.fechaNacimiento);
+        }
+
         function personaFueraDeRangoOMS(persona) {
             if (!persona) return false;
-            return calcularEdadEnMeses(persona.fechaNacimiento) > 228;
+            return edadRelevanteOMS(persona) >= 240;
         }
 
         // Edad (en meses) sobre la que debe centrarse el zoom por defecto: la de la
@@ -5771,7 +5819,10 @@
             const ventana = calcularVentanaZoom(persona, curvaEstado.indicador);
 
             const zoomInner = document.getElementById('curvaZoomInner');
-            if (zoomInner) zoomInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana);
+            if (zoomInner) {
+                zoomInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana);
+                setTimeout(() => agregarInteractividadPuntos(zoomInner), 200);
+            }
 
             // En pantalla completa se genera el SVG con una proporción (alto/ancho)
             // ajustada al espacio real disponible, para aprovechar toda la pantalla
@@ -5783,6 +5834,7 @@
                 const h = fsWrap.clientHeight || 700;
                 const H = Math.max(420, Math.min(1400, Math.round(720 * (h / w))));
                 fsInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana, { W: 720, H });
+                setTimeout(() => agregarInteractividadPuntos(fsInner), 200);
             }
             actualizarHeaderFullscreen(persona);
         }
@@ -5923,7 +5975,7 @@
             const cfg = INDICADOR_CONFIG[indicador];
             if (!cfg) return { xMin: 0, xMax: 228 }; // resguardo: indicador desconocido (p.ej. adulto fuera de rango)
             const edadActualMeses = edadEnMesesDecimal(persona.fechaNacimiento);
-            const xMax = Math.min(cfg.maxMeses, edadActualMeses > 60 ? 228 : 60);
+            const xMax = Math.min(cfg.maxMeses, edadActualMeses > 60 ? cfg.maxMeses : 60);
             return { xMin: 0, xMax };
         }
 
@@ -6054,6 +6106,14 @@
             const formatearTickX = indicador === 'pt' ? (v => v.toFixed(0)) : formatearEdadEje;
             let xTicks = [];
             for (let m = Math.ceil(xMin / pasoX) * pasoX; m <= xMax; m += pasoX) xTicks.push(m);
+            // El mes 228 (19 años exactos) es el límite oficial de las tablas OMS
+            // (Growth Reference 2007). Con el paso normal de 24 meses esa marca no
+            // siempre cae en la cuadrícula (p. ej. ...16a, 18a, salta a 20a), así que
+            // se agrega explícitamente para que siempre sea visible en el eje.
+            if (indicador !== 'pt' && xMin <= 228 && 228 <= xMax && !xTicks.includes(228)) {
+                xTicks.push(228);
+                xTicks.sort((a, b) => a - b);
+            }
 
             // Cuadrícula densa tipo "papel milimetrado" (como las fichas oficiales):
             // líneas menores cada mes/paso pequeño + líneas mayores en los ticks.
@@ -6114,7 +6174,8 @@
             }).join('');
 
             const pacientePath = puntos.length > 1 ? `<path d="${puntos.map((p, i) => (i === 0 ? 'M' : 'L') + xScale(p.x).toFixed(1) + ',' + yScale(p.y).toFixed(1)).join(' ')}" fill="none" stroke="#1d4ed8" stroke-width="${(2.2 * Math.min(1.6, factorTexto)).toFixed(1)}"/>` : '';
-            const pacientePuntos = puntos.map(p => {
+            const pacientePuntos = puntos.map((p, idx) => {
+                const esUltimo = idx === puntos.length - 1;
                 const color = Math.abs(p.z) > 2 ? '#dc2626' : (Math.abs(p.z) > 1 ? '#f59e0b' : '#1d4ed8');
                 const cx = xScale(p.x), cy = yScale(p.y);
                 const valorTxt = `${(+p.y).toFixed(1)} ${cfg.unidad}`;
@@ -6124,11 +6185,16 @@
                 const ly2 = arriba ? cy - 10 * factorTexto : cy + 28 * factorTexto;
                 const labelW = (Math.max(valorTxt.length, zTxt.length) * 5.6 + 8) * factorTexto;
                 const radio = (5 * factorTexto).toFixed(1);
-                return `<g>
-                    <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${radio}" fill="${color}" stroke="white" stroke-width="${(1.5 * factorTexto).toFixed(1)}"><title>${formatearFechaSV(p.fecha)}: ${valorTxt} — ${zTxt}</title></circle>
-                    <rect x="${(cx - labelW / 2).toFixed(1)}" y="${(ly1 - 9 * factorTexto).toFixed(1)}" width="${labelW.toFixed(1)}" height="${(20 * factorTexto).toFixed(1)}" rx="4" fill="white" fill-opacity="0.82"/>
-                    <text x="${cx.toFixed(1)}" y="${ly1.toFixed(1)}" font-size="${(9.5 * factorTexto).toFixed(1)}" font-weight="700" fill="#1f2937" text-anchor="middle">${valorTxt}</text>
-                    <text x="${cx.toFixed(1)}" y="${ly2.toFixed(1)}" font-size="${(9 * factorTexto).toFixed(1)}" fill="${color}" text-anchor="middle">${zTxt}</text>
+                const puntoId = `punto_${idx}_${Math.random().toString(36).slice(2, 9)}`;
+                const styleEtiqueta = esUltimo ? '' : 'style="display:none;"';
+                
+                return `<g class="punto-grupo" data-punto-id="${puntoId}" data-es-ultimo="${esUltimo}">
+                    <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${radio}" fill="${color}" stroke="white" stroke-width="${(1.5 * factorTexto).toFixed(1)}" style="cursor:pointer;" data-punto-id="${puntoId}"><title>📅 ${formatearFechaSV(p.fecha)}\n📊 ${valorTxt}\n📈 ${zTxt}</title></circle>
+                    <g ${styleEtiqueta} class="etiqueta-contenedor" data-punto-id="${puntoId}">
+                        <rect x="${(cx - labelW / 2).toFixed(1)}" y="${(ly1 - 9 * factorTexto).toFixed(1)}" width="${labelW.toFixed(1)}" height="${(20 * factorTexto).toFixed(1)}" rx="4" fill="white" fill-opacity="0.82"/>
+                        <text x="${cx.toFixed(1)}" y="${ly1.toFixed(1)}" font-size="${(9.5 * factorTexto).toFixed(1)}" font-weight="700" fill="#1f2937" text-anchor="middle">${valorTxt}</text>
+                        <text x="${cx.toFixed(1)}" y="${ly2.toFixed(1)}" font-size="${(9 * factorTexto).toFixed(1)}" fill="${color}" text-anchor="middle">${zTxt}</text>
+                    </g>
                 </g>`;
             }).join('');
 
@@ -6146,7 +6212,7 @@
             const clipId = 'clipPlot_' + indicador + '_' + Math.random().toString(36).slice(2, 9);
 
             return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%;display:block;background:white;border-radius:8px;">
-                    <defs><clipPath id="${clipId}"><rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}"/></clipPath></defs>
+                    <defs><clipPath id="${clipId}"><rect x="${padL - 16}" y="${padT - 16}" width="${plotW + 32}" height="${plotH + 32}"/></clipPath></defs>
                     <rect x="0" y="0" width="${W}" height="${H}" rx="8" fill="white" stroke="${grupo.frame}" stroke-width="3"/>
                     <g clip-path="url(#${clipId})">
                         <path d="${bandaPath}" fill="${grupo.header}" opacity="0.05"/>
@@ -6165,6 +6231,124 @@
                     <text x="${W/2}" y="20" font-size="13.5" font-weight="700" letter-spacing="0.3" fill="${grupo.headerTexto}" text-anchor="middle">${tituloOficial}</text>
                     <text x="${W/2}" y="35" font-size="10.5" fill="${grupo.headerTexto}" opacity="0.92" text-anchor="middle">${subtitulo}</text>
                 </svg>`;
+        }
+
+        // Función auxiliar: agregar interactividad a los puntos de la gráfica
+        // Etiquetas aparecen al hacer hover/toque sobre el círculo
+        // Versión robusta para WebView de Android
+        function agregarInteractividadPuntos(contenedor, reintentos = 0) {
+            if (!contenedor) return;
+            
+            // Intentar encontrar los elementos
+            const grupos = contenedor.querySelectorAll('.punto-grupo');
+            
+            // Si no hay elementos y hay reintentos disponibles, reintentar después
+            if (grupos.length === 0 && reintentos < 3) {
+                setTimeout(() => agregarInteractividadPuntos(contenedor, reintentos + 1), 100);
+                return;
+            }
+            
+            if (grupos.length === 0) return;
+            
+            // Verificar si ya se agregó el listener de delegación
+            if (contenedor.dataset.delegationListenerAdded) return;
+            
+            try {
+                // Event Delegation: un solo listener en el contenedor maneja todos los puntos
+                contenedor.removeEventListener('click', handleGrupoClick);  // Limpiar listener anterior
+                contenedor.addEventListener('click', handleGrupoClick, false);
+                
+                contenedor.removeEventListener('mouseenter', handleGrupoMouseEnter, true);  // Captura
+                contenedor.addEventListener('mouseenter', handleGrupoMouseEnter, true);
+                
+                contenedor.removeEventListener('mouseleave', handleGrupoMouseLeave, true);  // Captura
+                contenedor.addEventListener('mouseleave', handleGrupoMouseLeave, true);
+                
+                // Marcar que el listener fue agregado
+                contenedor.dataset.delegationListenerAdded = '1';
+            } catch (err) {
+                // Silenciosamente ignorar errores
+            }
+        }
+        
+        // Handlers para event delegation (definir fuera para reutilizar)
+        function handleGrupoClick(e) {
+            // Encontrar el .punto-grupo más cercano
+            let grupo = e.target.closest('.punto-grupo');
+            if (!grupo) return;
+            
+            e.stopPropagation();
+            const puntoId = grupo.getAttribute('data-punto-id');
+            const etiqueta = grupo.querySelector(`.etiqueta-contenedor[data-punto-id="${puntoId}"]`);
+            
+            if (etiqueta) {
+                const esVisible = etiqueta.style.display === 'block';
+                etiqueta.style.display = esVisible ? 'none' : 'block';
+            }
+        }
+        
+        function handleGrupoMouseEnter(e) {
+            let grupo = e.target.closest('.punto-grupo');
+            if (!grupo) return;
+            
+            const puntoId = grupo.getAttribute('data-punto-id');
+            const etiqueta = grupo.querySelector(`.etiqueta-contenedor[data-punto-id="${puntoId}"]`);
+            
+            if (etiqueta) {
+                etiqueta.style.display = 'block';
+            }
+        }
+        
+        function handleGrupoMouseLeave(e) {
+            let grupo = e.target.closest('.punto-grupo');
+            if (!grupo) return;
+            
+            const esUltimo = grupo.getAttribute('data-es-ultimo') === 'true';
+            const puntoId = grupo.getAttribute('data-punto-id');
+            const etiqueta = grupo.querySelector(`.etiqueta-contenedor[data-punto-id="${puntoId}"]`);
+            
+            if (etiqueta && !esUltimo) {
+                etiqueta.style.display = 'none';
+            }
+        }
+
+        // Sistema automático: Monitorear cambios en contenedores SVG
+        // Esto asegura que la interactividad se aplique incluso si renderGraficaZoom() no llama explícitamente
+        function iniciarMutationObserverGraficas() {
+            const contenedoresGraficas = [
+                'curvaZoomInner',
+                'curvaFullscreenInner',
+                'miniChartContainer',
+                'simPedChartContainer',
+                'simPedLactanceChartContainer',
+                'simPedFullscreenInner'
+            ];
+            
+            contenedoresGraficas.forEach(id => {
+                const contenedor = document.getElementById(id);
+                if (!contenedor) return;
+                
+                // Observer que reacciona a cambios en el contenido
+                const observer = new MutationObserver((mutations) => {
+                    // Si hubo cambios significativos, agregar interactividad
+                    setTimeout(() => agregarInteractividadPuntos(contenedor), 150);
+                });
+                
+                // Configuración: observar cambios en childList (elementos agregados/removidos)
+                observer.observe(contenedor, {
+                    childList: true,
+                    subtree: true,
+                    characterData: false,
+                    attributes: false
+                });
+            });
+        }
+        
+        // Iniciar MutationObserver cuando el DOM esté listo
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', iniciarMutationObserverGraficas);
+        } else {
+            iniciarMutationObserverGraficas();
         }
 
         // Edad a mostrar junto al nombre en el contexto de la gráfica de crecimiento:
@@ -6196,9 +6380,8 @@
             }
             const recorte = coincidencias.slice(0, CURVA_RESULTADOS_MAX);
             let listaHtml = recorte.map(p => {
-                const meses = calcularEdadEnMeses(p.fechaNacimiento);
                 const edadMostrada = edadParaMostrarEnCurva(p);
-                const fueraRango = meses > 228 ? ' — fuera de rango OMS' : '';
+                const fueraRango = personaFueraDeRangoOMS(p) ? ' — fuera de rango OMS' : '';
                 return `<button type="button" onclick="seleccionarPersonaCurvaDesdeBusqueda('${p.id}')">${p.nombre} (${edadMostrada})${fueraRango}</button>`;
             }).join('');
             if (coincidencias.length > CURVA_RESULTADOS_MAX) {
@@ -6263,11 +6446,10 @@
             const previoDom = select.value;
             select.innerHTML = '<option value="">-- Seleccionar --</option>';
             DB.personas.forEach(p => {
-                const meses = calcularEdadEnMeses(p.fechaNacimiento);
                 const option = document.createElement('option');
                 option.value = p.id;
                 const edadMostrada = edadParaMostrarEnCurva(p);
-                option.textContent = `${p.nombre} (${edadMostrada})${meses > 228 ? ' — fuera de rango OMS' : ''}`;
+                option.textContent = `${p.nombre} (${edadMostrada})${personaFueraDeRangoOMS(p) ? ' — fuera de rango OMS' : ''}`;
                 select.appendChild(option);
             });
             // Prioridad: 1) la persona indicada explícitamente por curvaEstado (p.ej. al
@@ -6490,7 +6672,7 @@
                             `}
                         </strong>
                         ${dInd ? `<div style="color:${colInd.texto}; font-size:0.85rem; margin-top:2px;">Z = ${dInd.z.toFixed(2)}</div>` : ''}
-                        <div style="color:${colInd.texto}; font-size:0.85rem; margin-top:2px;">Clasificación OMS/MINSAL 2022${c.meses != null && c.meses <= 60.5 ? ' (0-5 años)' : (c.meses != null && c.meses <= 228 ? ' (5-19 años)' : '')}</div>
+                        <div style="color:${colInd.texto}; font-size:0.85rem; margin-top:2px;">Clasificación OMS/MINSAL 2022${c.meses != null && c.meses <= 60.5 ? ' (0-5 años)' : (c.meses != null && c.meses < 240 ? ' (5-19 años)' : '')}</div>
                     </div>
                 `;
             }
@@ -6556,7 +6738,9 @@
             if (!persona) return;
             btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            document.getElementById('miniChartContainer').innerHTML = envolverGraficaResponsive(generarGraficaSVG(persona, indicador));
+            const miniContainer = document.getElementById('miniChartContainer');
+            miniContainer.innerHTML = envolverGraficaResponsive(generarGraficaSVG(persona, indicador));
+            setTimeout(() => agregarInteractividadPuntos(miniContainer), 200);
 
             // Actualizar el recuadro "Estado Actual" para que muestre el resultado
             // (label + Z) del indicador recién seleccionado, en vez de quedarse fijo.
@@ -6615,7 +6799,7 @@
                         </ul>
                     </div>
                 `;
-            } else if (edadMeses < 228) {
+            } else if (edadMeses < 240) {
                 return `
                     <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
                         <h4 style="color: #065f46; margin-bottom: 0.5rem;">💡 Recomendaciones Nutricionales (Niños y Adolescentes 5-19 años)</h4>
@@ -6847,7 +7031,9 @@
             if (estadoInicial.esOMS || persona.edadEnMeses >= 60) {
                 const indicadoresPermitidos = indicadoresParaPersona(persona);
                 const indicadorInicial = indicadoresPermitidos[0] || 'wfa';
-                document.getElementById('miniChartContainer').innerHTML = envolverGraficaResponsive(generarGraficaSVG(persona, indicadorInicial));
+                const miniContainer = document.getElementById('miniChartContainer');
+                miniContainer.innerHTML = envolverGraficaResponsive(generarGraficaSVG(persona, indicadorInicial));
+                setTimeout(() => agregarInteractividadPuntos(miniContainer), 200);
             }
         }
 
