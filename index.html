@@ -19,6 +19,37 @@
         document.head.appendChild(s);
     }
     </script>
+
+    <!-- ═══════════════════════════════════════════ FIREBASE: acceso a la nube ═══════════════════════════════════════════
+         Proyecto con reglas ABIERTAS (lectura/escritura sin autenticación, sin límite).
+         Ver advertencias de seguridad junto a los botones de sincronización en el panel de Configuración. -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js";
+        import {
+            getFirestore, doc, setDoc, getDoc, deleteField, serverTimestamp
+        } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAuN61gYA19Y5U8fnC7W8bwfHaj3nTQMMI",
+            authDomain: "curvas-de-creciemiento.firebaseapp.com",
+            projectId: "curvas-de-creciemiento",
+            storageBucket: "curvas-de-creciemiento.firebasestorage.app",
+            messagingSenderId: "1028278442710",
+            appId: "1:1028278442710:web:e8cee956a56ccf38ed0777",
+            measurementId: "G-MLE6LNCQ3T"
+        };
+
+        let app, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error('Firebase no se pudo inicializar:', e);
+        }
+
+        // Se exponen como globales porque el resto de la app usa scripts clásicos (no módulos).
+        window.__fb = { app, db, doc, setDoc, getDoc, deleteField, serverTimestamp, listo: !!db };
+    </script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -1355,6 +1386,76 @@
             border-left: 4px solid var(--danger);
         }
         
+        /* ═══════════════════════════════════════════ SINCRONIZACIÓN FIREBASE ═══════════════════════════════════════════ */
+        .sync-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.72);
+            z-index: 3000;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+        .sync-overlay.show { display: flex; }
+        .sync-box {
+            background: #fff;
+            border-radius: 14px;
+            padding: 2rem 1.75rem;
+            max-width: 380px;
+            width: 100%;
+            text-align: center;
+            box-shadow: var(--shadow-lg);
+        }
+        .sync-spinner {
+            width: 46px;
+            height: 46px;
+            margin: 0 auto 1.2rem;
+            border: 5px solid var(--light2);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: sync-spin 0.9s linear infinite;
+        }
+        @keyframes sync-spin { to { transform: rotate(360deg); } }
+        .sync-box h3 { color: var(--primary); margin-bottom: 0.5rem; font-size: 1.05rem; }
+        .sync-box p { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.4rem; }
+        .sync-box .sync-detalle { font-size: 0.82rem; color: var(--text); font-weight: 600; min-height: 1.2em; }
+        .sync-box .sync-noaviso {
+            margin-top: 1rem;
+            padding-top: 0.9rem;
+            border-top: 1px solid var(--light2);
+            font-size: 0.78rem;
+            color: var(--danger);
+            font-weight: 600;
+        }
+        .sync-status-badge {
+            display: inline-block;
+            font-size: 0.82rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: var(--light);
+            color: var(--muted);
+            margin-top: 0.5rem;
+        }
+        .sync-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            cursor: pointer;
+            user-select: none;
+            margin-bottom: 1rem;
+        }
+        .sync-panel-chevron {
+            font-size: 1.1rem;
+            color: var(--primary);
+            transition: transform 0.2s ease;
+            flex-shrink: 0;
+        }
+        .sync-panel-chevron.oculto { transform: rotate(-90deg); }
+        #syncPanelContenido.oculto { display: none; }
+        #syncPanelWrap.oculto { display: none; }
+
         .alert-icon {
             font-size: 1.3rem;
             flex-shrink: 0;
@@ -2392,6 +2493,17 @@
         </div>
     </header>
 
+    <!-- Overlay de sincronización con Firebase -->
+    <div class="sync-overlay" id="syncOverlay">
+        <div class="sync-box">
+            <div class="sync-spinner"></div>
+            <h3 id="syncTitulo">Sincronizando…</h3>
+            <p id="syncMensaje">Esto puede tardar un momento.</p>
+            <div class="sync-detalle" id="syncDetalle"></div>
+            <div class="sync-noaviso">🚫 No cierres la app ni bloquees la pantalla</div>
+        </div>
+    </div>
+
     <!-- Drawer -->
     <div class="drawer-overlay" id="drawerOverlay" onclick="toggleDrawer()"></div>
     <nav class="drawer" id="drawer">
@@ -2723,7 +2835,7 @@
         <!-- PANEL 6: Configuración -->
         <div id="config" class="content">
             <div class="form-container">
-                <h2>⚙️ Configuración</h2>
+                <h2 onclick="registrarTapSecretoSync()" style="cursor:pointer;">⚙️ Configuración</h2>
                 
                 <div class="alert alert-warning">
                     <span class="alert-icon">⚠️</span>
@@ -2754,6 +2866,46 @@
                     </div>
                     <div style="margin-top: 1rem; padding: 1rem; background: var(--light1); border-radius: 8px; font-size: 0.9rem; color: var(--muted);">
                         <strong>Columnas del Excel:</strong> solo 3 columnas obligatorias: <code>Nombre</code>, <code>Sexo</code> y <code>Fecha de Nacimiento</code> (formato DD/MM/AAAA o AAAA-MM-DD). La edad se calcula automáticamente. Usa el botón "Descargar Plantilla Excel" para obtener el formato exacto con un ejemplo.
+                    </div>
+                </div>
+
+                <div id="syncPanelWrap" class="oculto" style="margin: 2rem 0; padding-top: 2rem; border-top: 1px solid var(--light2);">
+                    <div class="sync-panel-header" onclick="toggleSyncPanel()">
+                        <h3 style="color: var(--primary); margin: 0;">☁️ Sincronización en la Nube</h3>
+                        <span id="syncPanelToggleIcon" class="sync-panel-chevron">▾</span>
+                    </div>
+
+                    <div id="syncPanelContenido">
+                        <div class="alert alert-danger">
+                            <span class="alert-icon">⚠️</span>
+                            <div>
+                                <strong>Reglas de acceso abiertas:</strong> esta nube NO usa contraseña ni límite de uso.
+                                Cualquier persona que conozca el <strong>código de sincronización</strong> puede leer o
+                                sobrescribir esos datos. No es un sistema seguro para datos sensibles: úsalo solo como
+                                respaldo adicional, elige un código difícil de adivinar y no lo compartas por redes
+                                sociales. El respaldo local (📥 Descargar Datos) sigue siendo tu copia principal.
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Código de sincronización (identifica tus datos en la nube)</label>
+                            <input type="text" id="codigoSyncInput" placeholder="Ej: piletas-abimael-2026" autocapitalize="off" autocorrect="off">
+                        </div>
+                        <button class="btn btn-secondary" onclick="guardarCodigoSync()">💾 Guardar código</button>
+
+                        <div id="syncEstadoTexto" class="sync-status-badge">Sin sincronizar todavía</div>
+
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+                            <button class="btn btn-primary" onclick="confirmarSubirFirebase()">☁️⬆️ Subir a la Nube</button>
+                            <button class="btn btn-secondary" onclick="confirmarDescargarFirebase()">☁️⬇️ Bajar de la Nube</button>
+                        </div>
+
+                        <div style="margin-top: 1rem; padding: 1rem; background: var(--light); border-radius: 8px; font-size: 0.85rem; color: var(--muted);">
+                            <strong>Tiempo prudente:</strong> según la cantidad de personas y tu conexión, subir o bajar
+                            datos puede tardar desde unos segundos hasta 1–2 minutos. No cierres la app ni apagues la
+                            pantalla mientras se muestre el aviso de "sincronizando". Si no tienes datos móviles o wifi
+                            estables, espera a tenerlos antes de sincronizar para evitar datos incompletos.
+                        </div>
                     </div>
                 </div>
 
@@ -7128,6 +7280,261 @@
         }
 
         // ═══════════════════════════════════════════════════════════════
+        // SINCRONIZACIÓN CON FIREBASE (nube con reglas abiertas)
+        // ═══════════════════════════════════════════════════════════════
+        // Los datos se guardan como texto JSON partido en "trozos" dentro de
+        // Firestore (cada documento tiene un límite de ~1MB), bajo la
+        // colección vigilancia_sync/{codigo}/partes/{n}. El código de
+        // sincronización es elegido por el promotor y NO es una contraseña:
+        // como las reglas son abiertas, cualquiera que lo conozca puede leer
+        // o sobrescribir esos datos. Se advierte de esto antes de cada uso.
+
+        // Gesto oculto: 5 toques rápidos sobre el título "⚙️ Configuración"
+        // muestran u ocultan por completo la sección de sincronización con la nube.
+        let _tapsSecretoSync = 0;
+        let _tapsSecretoSyncTimer = null;
+        function registrarTapSecretoSync() {
+            _tapsSecretoSync++;
+            clearTimeout(_tapsSecretoSyncTimer);
+            _tapsSecretoSyncTimer = setTimeout(() => { _tapsSecretoSync = 0; }, 2000);
+            if (_tapsSecretoSync >= 5) {
+                _tapsSecretoSync = 0;
+                clearTimeout(_tapsSecretoSyncTimer);
+                alternarPanelSyncOculto();
+            }
+        }
+
+        function alternarPanelSyncOculto() {
+            const wrap = document.getElementById('syncPanelWrap');
+            if (!wrap) return;
+            const mostrar = wrap.classList.contains('oculto');
+            wrap.classList.toggle('oculto', !mostrar);
+            try { localStorage.setItem('sync_panel_desbloqueado', mostrar ? '1' : '0'); } catch (e) {}
+            if (mostrar) {
+                alert('🔓 Sincronización en la nube activada.');
+                wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else {
+                alert('🔒 Sincronización en la nube ocultada.');
+            }
+        }
+
+        function restaurarDesbloqueoSyncPanel() {
+            let desbloqueado = false;
+            try { desbloqueado = localStorage.getItem('sync_panel_desbloqueado') === '1'; } catch (e) {}
+            const wrap = document.getElementById('syncPanelWrap');
+            if (wrap) wrap.classList.toggle('oculto', !desbloqueado);
+        }
+
+        // Recuerda si el panel de sincronización está oculto o visible, para que
+        // no reaparezca cada vez que el promotor entra a Configuración.
+        function toggleSyncPanel() {
+            const contenido = document.getElementById('syncPanelContenido');
+            const icono = document.getElementById('syncPanelToggleIcon');
+            const ocultar = !contenido.classList.contains('oculto');
+            contenido.classList.toggle('oculto', ocultar);
+            icono.classList.toggle('oculto', ocultar);
+            try { localStorage.setItem('sync_panel_oculto', ocultar ? '1' : '0'); } catch (e) {}
+        }
+
+        function restaurarEstadoSyncPanel() {
+            let oculto = false;
+            try { oculto = localStorage.getItem('sync_panel_oculto') === '1'; } catch (e) {}
+            const contenido = document.getElementById('syncPanelContenido');
+            const icono = document.getElementById('syncPanelToggleIcon');
+            if (!contenido || !icono) return;
+            contenido.classList.toggle('oculto', oculto);
+            icono.classList.toggle('oculto', oculto);
+        }
+
+        function obtenerCodigoSync() {
+            return (DB.config && DB.config.codigoSync) || '';
+        }
+
+        function guardarCodigoSync() {
+            const val = document.getElementById('codigoSyncInput').value.trim();
+            if (!val) { alert('Escribe un código antes de guardar.'); return; }
+            DB.config.codigoSync = val;
+            guardarDatos();
+            alert('✅ Código de sincronización guardado: ' + val + '\n\nRecuerda: no lo compartas públicamente, ya que cualquiera con este código puede leer o modificar estos datos en la nube.');
+            actualizarEstadoSyncUI();
+        }
+
+        function estimarTiempoSync() {
+            const n = (DB.personas ? DB.personas.length : 0) + (DB.mediciones ? DB.mediciones.length : 0);
+            if (n < 100) return 'unos 5 a 15 segundos';
+            if (n < 500) return 'entre 15 y 40 segundos aproximadamente';
+            return 'hasta 1 o 2 minutos aproximadamente';
+        }
+
+        function mostrarSyncOverlay(titulo, mensaje) {
+            document.getElementById('syncTitulo').textContent = titulo;
+            document.getElementById('syncMensaje').textContent = mensaje;
+            document.getElementById('syncDetalle').textContent = '';
+            document.getElementById('syncOverlay').classList.add('show');
+        }
+
+        function actualizarSyncDetalle(texto) {
+            const el = document.getElementById('syncDetalle');
+            if (el) el.textContent = texto;
+        }
+
+        function ocultarSyncOverlay() {
+            document.getElementById('syncOverlay').classList.remove('show');
+        }
+
+        // Evita que la app se quede "colgada" esperando indefinidamente si no hay
+        // buena conexión: si la operación no responde dentro de "ms", se avisa.
+        function conTiempoLimite(promesaFn, ms) {
+            return Promise.race([
+                promesaFn(),
+                new Promise((_, reject) => setTimeout(
+                    () => reject(new Error('Tiempo de espera agotado. Revisa tu conexión a internet e inténtalo de nuevo.')),
+                    ms
+                ))
+            ]);
+        }
+
+        function actualizarEstadoSyncUI() {
+            const el = document.getElementById('syncEstadoTexto');
+            if (!el) return;
+            const codigo = obtenerCodigoSync();
+            const inputCodigo = document.getElementById('codigoSyncInput');
+            if (inputCodigo && !inputCodigo.value) inputCodigo.value = codigo;
+            if (!codigo) { el.textContent = 'Sin código de sincronización configurado'; return; }
+            const opciones = { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+            const subida = DB.config && DB.config.ultimaSubidaSync;
+            const bajada = DB.config && DB.config.ultimaBajadaSync;
+            const partes = ['Código: ' + codigo];
+            if (subida) partes.push('Última subida: ' + formatearFechaSV(new Date(subida), opciones));
+            if (bajada) partes.push('Última bajada: ' + formatearFechaSV(new Date(bajada), opciones));
+            if (!subida && !bajada) partes.push('Sin sincronizar todavía');
+            el.textContent = partes.join(' · ');
+        }
+
+        function confirmarSubirFirebase() {
+            const codigo = obtenerCodigoSync();
+            if (!codigo) { alert('Primero escribe y guarda un código de sincronización aquí en Configuración.'); return; }
+            const ok = confirm(
+                '☁️⬆️ Vas a SUBIR los datos de este dispositivo a la nube.\n\n' +
+                '• Esto SOBRESCRIBIRÁ lo que haya guardado en la nube con el código "' + codigo + '".\n' +
+                '• Tiempo estimado: ' + estimarTiempoSync() + '. No cierres la app mientras dure.\n' +
+                '• Advertencia: las reglas de la nube son ABIERTAS (sin contraseña ni límite de uso). ' +
+                'Cualquier persona que conozca este código podría leer o cambiar estos datos.\n\n' +
+                '¿Deseas continuar?'
+            );
+            if (ok) subirDatosFirebase();
+        }
+
+        function confirmarDescargarFirebase() {
+            const codigo = obtenerCodigoSync();
+            if (!codigo) { alert('Primero escribe y guarda un código de sincronización aquí en Configuración.'); return; }
+            const ok = confirm(
+                '☁️⬇️ Vas a BAJAR los datos de la nube (código "' + codigo + '").\n\n' +
+                '• Esto REEMPLAZARÁ todos los datos guardados en este dispositivo.\n' +
+                '• Tiempo estimado: ' + estimarTiempoSync() + '. No cierres la app mientras dure.\n' +
+                '• Se te pedirá una segunda confirmación justo antes de reemplazar tus datos locales.\n\n' +
+                '¿Deseas continuar?'
+            );
+            if (ok) descargarDatosFirebase();
+        }
+
+        async function subirDatosFirebase() {
+            if (!window.__fb || !window.__fb.listo) {
+                alert('❌ No se pudo conectar con la nube (Firebase no inicializó). Verifica tu conexión a internet y vuelve a intentar.');
+                return;
+            }
+            const codigo = obtenerCodigoSync();
+            const { db, doc, setDoc, serverTimestamp } = window.__fb;
+            mostrarSyncOverlay('Subiendo a la nube…', 'Preparando tus datos, por favor espera.');
+            try {
+                const json = JSON.stringify(DB);
+                const TAM_CHUNK = 400000; // caracteres por documento (margen bajo el límite de ~1MB de Firestore)
+                const partes = [];
+                for (let i = 0; i < json.length; i += TAM_CHUNK) partes.push(json.slice(i, i + TAM_CHUNK));
+                const totalKB = Math.round(json.length / 1024);
+                for (let i = 0; i < partes.length; i++) {
+                    actualizarSyncDetalle(`Enviando parte ${i + 1} de ${partes.length} · ${totalKB} KB en total`);
+                    await conTiempoLimite(
+                        () => setDoc(doc(db, 'vigilancia_sync', codigo, 'partes', String(i)), { contenido: partes[i] }),
+                        25000
+                    );
+                }
+                actualizarSyncDetalle('Guardando información final…');
+                await conTiempoLimite(
+                    () => setDoc(doc(db, 'vigilancia_sync', codigo), {
+                        totalPartes: partes.length,
+                        totalKB,
+                        totalPersonas: DB.personas.length,
+                        actualizado: serverTimestamp()
+                    }),
+                    15000
+                );
+                DB.config.ultimaSubidaSync = new Date().toISOString();
+                guardarDatos();
+                ocultarSyncOverlay();
+                actualizarEstadoSyncUI();
+                alert('✅ Datos subidos a la nube correctamente.\nCódigo: ' + codigo);
+            } catch (err) {
+                ocultarSyncOverlay();
+                alert('❌ No se pudo subir a la nube.\n' + (err && err.message ? err.message : 'Revisa tu conexión e inténtalo de nuevo.'));
+            }
+        }
+
+        async function descargarDatosFirebase() {
+            if (!window.__fb || !window.__fb.listo) {
+                alert('❌ No se pudo conectar con la nube (Firebase no inicializó). Verifica tu conexión a internet y vuelve a intentar.');
+                return;
+            }
+            const codigo = obtenerCodigoSync();
+            const { db, doc, getDoc } = window.__fb;
+            mostrarSyncOverlay('Bajando de la nube…', 'Buscando tus datos, por favor espera.');
+            try {
+                const manifiestoRef = doc(db, 'vigilancia_sync', codigo);
+                const manifiesto = await conTiempoLimite(() => getDoc(manifiestoRef), 20000);
+                if (!manifiesto.exists()) {
+                    ocultarSyncOverlay();
+                    alert('⚠️ No se encontraron datos en la nube con el código "' + codigo + '". Verifica que esté bien escrito.');
+                    return;
+                }
+                const info = manifiesto.data();
+                const totalPartes = info.totalPartes || 0;
+                let json = '';
+                for (let i = 0; i < totalPartes; i++) {
+                    actualizarSyncDetalle(`Recibiendo parte ${i + 1} de ${totalPartes}`);
+                    const parteSnap = await conTiempoLimite(
+                        () => getDoc(doc(db, 'vigilancia_sync', codigo, 'partes', String(i))),
+                        25000
+                    );
+                    if (!parteSnap.exists()) throw new Error('Los datos en la nube están incompletos (falta la parte ' + (i + 1) + ' de ' + totalPartes + ').');
+                    json += parteSnap.data().contenido;
+                }
+                const datos = JSON.parse(json);
+                ocultarSyncOverlay();
+                const nPersonas = datos.personas ? datos.personas.length : 0;
+                const confirmar = confirm(
+                    'Se encontraron ' + nPersonas + ' personas en la nube (código "' + codigo + '").\n\n' +
+                    '¿Reemplazar TODOS los datos de este dispositivo con los de la nube?\n' +
+                    'Esta acción no se puede deshacer. Si tienes dudas, primero haz "📥 Descargar Datos" para respaldar lo que tienes ahora.'
+                );
+                if (!confirmar) return;
+                mostrarSyncOverlay('Aplicando datos…', 'Guardando en este dispositivo, por favor espera.');
+                DB.personas = datos.personas || [];
+                DB.mediciones = datos.mediciones || [];
+                DB.config = Object.assign({}, DB.config, datos.config || {}, { codigoSync: codigo });
+                DB.config.ultimaBajadaSync = new Date().toISOString();
+                guardarDatos();
+                calcularEdadesAutomaticas();
+                ocultarSyncOverlay();
+                actualizarEstadoSyncUI();
+                alert('✅ Datos descargados y aplicados correctamente.');
+                mostrarPanel('dashboard');
+            } catch (err) {
+                ocultarSyncOverlay();
+                alert('❌ No se pudo bajar de la nube.\n' + (err && err.message ? err.message : 'Revisa tu conexión e inténtalo de nuevo.'));
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════════════
         // IMPORTAR PERSONAS DESDE EXCEL
         // ═══════════════════════════════════════════════════════════════
 
@@ -7486,6 +7893,9 @@
             if (DB.config.nombrePromotor) {
                 document.getElementById('nombrePromotor').value = DB.config.nombrePromotor;
             }
+            actualizarEstadoSyncUI();
+            restaurarDesbloqueoSyncPanel();
+            restaurarEstadoSyncPanel();
             document.getElementById('topbarTitle').textContent = 'Personas';
             document.getElementById('sortBtn').style.display = 'flex';
             mostrarPersonas();
