@@ -944,6 +944,25 @@
         .btn-danger:hover {
             background: #dc2626;
         }
+
+        /* Botones de navegación de curvas ("Ver curva completa" y "Ver
+           historial por grupo de edad"): antes usaban .btn-secondary (gris
+           plano), que se pierde visualmente entre tanto texto. Se les da un
+           degradado propio, llamativo pero distinto al verde de "Guardar" y
+           al rojo de "Eliminar", para que se noten como una acción de
+           navegación/exploración. */
+        .btn-curva-nav {
+            background: linear-gradient(90deg, #6d28d9, #2563eb);
+            color: white;
+            border: none;
+            box-shadow: 0 2px 8px rgba(109, 40, 217, 0.35);
+        }
+
+        .btn-curva-nav:hover {
+            background: linear-gradient(90deg, #5b21b6, #1d4ed8);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(109, 40, 217, 0.45);
+        }
         
         .btn-success {
             background: var(--success);
@@ -2021,6 +2040,16 @@
             background: var(--light);
             padding: 0.3rem;
             border-radius: 10px;
+            /* La corrección anterior solo agregaba scroll horizontal dentro del
+               @media(max-width:768px) — en pantallas MÁS anchas (o cuando el
+               layout no fuerza el "wrap" del contenedor padre), esta barra no
+               tenía NINGÚN control de desborde: con el modo histórico (hasta 7
+               pestañas de texto largo) simplemente se salía del cuadro blanco
+               y se montaba sobre el fondo de la página. Ahora el scroll
+               horizontal aplica siempre, sin importar el ancho de pantalla. */
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .ind-tab {
@@ -2034,6 +2063,7 @@
             cursor: pointer;
             transition: all 0.2s;
             white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .ind-tab:hover { color: var(--text); }
@@ -2136,10 +2166,13 @@
             padding: 0.4rem 0.7rem;
             border-bottom: 1px solid var(--border);
             flex-shrink: 0;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         .curva-fs-tabs .ind-tab-fs {
-            flex: 1;
-            padding: 0.4rem 0.3rem;
+            flex: 0 0 auto;
+            white-space: nowrap;
+            padding: 0.4rem 0.7rem;
             font-size: 0.78rem;
             font-weight: 600;
             border: 1px solid var(--border);
@@ -2294,6 +2327,9 @@
             display: flex;
             gap: 0.3rem;
             margin-bottom: 0.6rem;
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .mini-chart-tabs button {
@@ -2305,6 +2341,8 @@
             font-weight: 600;
             color: var(--muted);
             cursor: pointer;
+            flex-shrink: 0;
+            white-space: nowrap;
         }
 
         .mini-chart-tabs button.active {
@@ -2338,8 +2376,11 @@
 
         @media (max-width: 768px) {
             .chart-toolbar { flex-direction: column; align-items: stretch; }
-            .indicator-tabs { justify-content: space-between; }
-            .ind-tab { flex: 1; padding: 0.6rem 0.4rem; font-size: 0.78rem; }
+            /* El scroll horizontal y el ancho natural de cada pestaña ya son
+               parte de las reglas base de .indicator-tabs/.ind-tab (arriba);
+               aquí solo se ajusta el tamaño/padding para pantallas angostas. */
+            .indicator-tabs { justify-content: flex-start; }
+            .ind-tab { padding: 0.6rem 0.8rem; font-size: 0.78rem; }
         }
 
         /* ═══════════════════════════════════════════ REPORTES ═══════════════════════════════════════════ */
@@ -2758,7 +2799,7 @@
                     </div>
 
                     <div class="form-actions">
-                        <button type="button" class="btn btn-secondary" onclick="mostrarPanel('dashboard')">Cancelar</button>
+                        <button type="button" class="btn btn-secondary" onclick="cancelarFormMedicion()">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Guardar Medición</button>
                     </div>
                 </form>
@@ -2789,6 +2830,8 @@
                     <button class="ind-tab active" data-ind="wfa" onclick="cambiarIndicadorCurva('wfa')">Peso / Edad</button>
                 </div>
             </div>
+
+            <div id="curvaHistoricoToggleWrap"></div>
 
             <div id="curvaEstadoResumen"></div>
             <div id="curvaEstadoBadges" class="oms-badges"></div>
@@ -3436,7 +3479,11 @@
         // usarse tanto con personas registradas como con esta simulación.
         function indicadoresParaEdadMeses(meses) {
             if (meses < 24) return ['wfa', 'lhfa'];
-            if (meses < 61) return ['wfa', 'lhfa', 'pt'];
+            // Umbral EXACTO de 60 meses (5 años). edadEnMesesDecimal() calcula
+            // por días exactos (no aproximado), así que no hace falta ningún
+            // margen — un margen de 0.5 meses dejaba a un niño de exactamente
+            // 5 años (o unos días más) todavía clasificado como 2-<5 años.
+            if (meses <= 60) return ['wfa', 'lhfa', 'pt'];
             if (meses < 240) return ['lhfa', 'imc'];
             return ['imcAdulto'];
         }
@@ -3631,7 +3678,7 @@
                     <div class="mini-chart">
                         <div class="mini-chart-tabs" id="${prefix}IndTabs">
                             ${indicadores.map((ind, idx) => {
-                                const label = MAPEO_LABELS_INDICADOR[ind] || ind;
+                                const label = etiquetaCompactaIndicador(ind, medicion.edadEvaluacion);
                                 const esActivo = idx === 0 ? 'active' : '';
                                 return `<button type="button" class="${esActivo}" data-ind="${ind}" onclick="simPedSetIndicador('${ind}')">${label}</button>`;
                             }).join('')}
@@ -3705,7 +3752,8 @@
 
         function calcularVentanaZoomSim(indicador) {
             if (!simPedEstado) return null;
-            const full = rangoCompletoIndicador(simPedEstado.persona, indicador);
+            const ventanaVidaId = ventanaParaMeses(simPedEstado.medicion.edadEvaluacion);
+            const full = rangoCompletoIndicador(simPedEstado.persona, indicador, ventanaVidaId);
             if (simPedZoom.factor <= 1.001) { simPedZoom.centro = null; return null; }
             const spanFull = full.xMax - full.xMin;
             const spanVisible = spanFull / simPedZoom.factor;
@@ -3728,17 +3776,18 @@
             const { persona, medicion } = simPedEstado;
             const indicador = simPedIndicadorActual;
             const ventana = calcularVentanaZoomSim(indicador);
+            const ventanaVidaId = ventanaParaMeses(medicion.edadEvaluacion);
 
             const idx = DB.mediciones.push(medicion) - 1;
             let svgHtml = '', svgHtmlFs = null;
             try {
-                svgHtml = generarGraficaSVG(persona, indicador, ventana);
+                svgHtml = generarGraficaSVG(persona, indicador, ventana, null, ventanaVidaId);
                 const fsWrap = document.getElementById('simPedFullscreenSvgWrap');
                 if (fsWrap && fsWrap.offsetParent !== null) {
                     const w = fsWrap.clientWidth || 390;
                     const h = fsWrap.clientHeight || 700;
                     const H = Math.max(420, Math.min(1400, Math.round(720 * (h / w))));
-                    svgHtmlFs = generarGraficaSVG(persona, indicador, ventana, { W: 720, H });
+                    svgHtmlFs = generarGraficaSVG(persona, indicador, ventana, { W: 720, H }, ventanaVidaId);
                 }
             } finally {
                 DB.mediciones.splice(idx, 1);
@@ -3843,7 +3892,7 @@
             const tabsEl = document.getElementById('simPedFullscreenTabs');
             if (tabsEl) {
                 tabsEl.innerHTML = indicadores.map(ind =>
-                    `<button type="button" class="ind-tab-fs${ind === simPedIndicadorActual ? ' active' : ''}" data-ind="${ind}" onclick="simPedSetIndicador('${ind}')">${TABS_INDICADOR[ind]}</button>`
+                    `<button type="button" class="ind-tab-fs${ind === simPedIndicadorActual ? ' active' : ''}" data-ind="${ind}" onclick="simPedSetIndicador('${ind}')">${etiquetaTabIndicador(ind, simPedEstado.medicion.edadEvaluacion)}</button>`
                 ).join('');
             }
             const nombreEl = document.getElementById('simPedFullscreenNombre');
@@ -4017,6 +4066,28 @@
             document.getElementById('personaMedicion').title = '';
         }
 
+        // Botón "Cancelar" del formulario de medición. Antes mandaba SIEMPRE
+        // al Dashboard, sin importar si se venía de editar/registrar una
+        // medición para una persona específica — por eso se "perdía" el
+        // contexto de en quién se estaba trabajando. Ahora, si hay una
+        // persona seleccionada en el formulario (edición o registro nuevo
+        // iniciado desde su perfil), se vuelve directamente a su perfil;
+        // solo cae al Dashboard cuando no hay ninguna persona en contexto
+        // (p. ej. se entró a "Medición" desde el menú sin elegir a nadie).
+        function cancelarFormMedicion() {
+            const personaId = document.getElementById('personaMedicion').value;
+            document.getElementById('formMedicion').reset();
+            document.getElementById('fechaMedicion').value = formatearFechaISO(ahoraElSalvador());
+            document.getElementById('fieldsPretermino').style.display = 'none';
+            cerrarEdicionMedicion();
+
+            if (personaId) {
+                verPerfilPersona(personaId);
+            } else {
+                mostrarPanel('dashboard');
+            }
+        }
+
         function eliminarMedicion(medicionId) {
             if (confirm('¿Eliminar esta medición?')) {
                 const medicion = DB.mediciones.find(m => m.id === medicionId);
@@ -4164,7 +4235,7 @@
                 let te = null;
                 if (medicion.talla) {
                     const zte = zTallaEdad(medicion.talla, meses, persona.sexo);
-                    te = { ...clasificarTE(zte, false), z: zte, indicador: 'Talla/Edad' };
+                    te = { ...clasificarTE(zte, false), z: zte, indicador: etiquetaCompactaIndicador('lhfa', meses) };
                 }
                 
                 const indicadores = [pe, te].filter(Boolean);
@@ -4183,14 +4254,14 @@
             }
             
             // 2 A MENOR DE 5 AÑOS (24-60 meses): Peso/Edad + Talla/Edad + Peso/Talla (Tabla 2, Acuerdo 2827)
-            if (meses >= 24 && meses <= 60.5) {
+            if (meses >= 24 && meses <= 60) {
                 const zpe = zPesoEdad(medicion.peso, meses, persona.sexo);
                 const pe = { ...clasificarPE(zpe), z: zpe, indicador: 'Peso/Edad' };
                 
                 let te = null, pt = null;
                 if (medicion.talla) {
                     const zte = zTallaEdad(medicion.talla, meses, persona.sexo);
-                    te = { ...clasificarTE(zte, false), z: zte, indicador: 'Talla/Edad' };
+                    te = { ...clasificarTE(zte, false), z: zte, indicador: etiquetaCompactaIndicador('lhfa', meses) };
                     const zpt = zPesoTalla(medicion.peso, medicion.talla, persona.sexo);
                     pt = { ...clasificarPesoTalla(zpt), z: zpt, indicador: 'Peso/Talla' };
                 }
@@ -4211,7 +4282,7 @@
             }
             
             // NIÑOS Y ADOLESCENTES 5-19 AÑOS (61-228 meses): Talla/Edad + IMC/Edad (Tabla 2, Acuerdo 2827)
-            if (meses > 60.5 && meses < 240 && medicion.talla) {
+            if (meses > 60 && meses < 240 && medicion.talla) {
                 const zte = zTallaEdad(medicion.talla, meses, persona.sexo);
                 const te = { ...clasificarTE(zte, true), z: zte, indicador: 'Talla/Edad' };
                 
@@ -4357,29 +4428,39 @@
         function calcularEdad(fechaNacimiento) {
             const hoy = ahoraElSalvador();
             const nacimiento = parsearFechaLocal(fechaNacimiento);
+
             let años = hoy.getFullYear() - nacimiento.getFullYear();
-            const mes = hoy.getMonth() - nacimiento.getMonth();
-            
-            if (mes < 0 || (mes === 0 && hoy.getDate() < nacimiento.getDate())) {
-                años--;
+            let meses = hoy.getMonth() - nacimiento.getMonth();
+            let dias = hoy.getDate() - nacimiento.getDate();
+
+            // Si aún no se ha cumplido el día del mes, se "pide prestado"
+            // un mes (y ese mes se resta usando los días del mes anterior)
+            if (dias < 0) {
+                meses--;
+                const diasMesAnterior = new Date(hoy.getFullYear(), hoy.getMonth(), 0).getDate();
+                dias += diasMesAnterior;
             }
 
-            const meses = ((hoy.getMonth() - nacimiento.getMonth() + 12) % 12) + 
-                         (hoy.getDate() >= nacimiento.getDate() ? 0 : 0);
-            
+            // Si al restar el mes de nacimiento el resultado es negativo,
+            // se "pide prestado" un año
+            if (meses < 0) {
+                años--;
+                meses += 12;
+            }
+
             const totalMeses = años * 12 + meses;
-            
+
             if (totalMeses < 1) {
-                const días = Math.floor((hoy - nacimiento) / (1000 * 60 * 60 * 24));
-                return `${días}d`;
-            } else if (totalMeses < 12) {
-                return `${totalMeses}m`;
+                const díasTotales = Math.floor((hoy - nacimiento) / (1000 * 60 * 60 * 24));
+                return `${díasTotales} día${díasTotales === 1 ? '' : 's'}`;
+            } else if (años < 1) {
+                return `${meses} mes${meses === 1 ? '' : 'es'}`;
             } else {
-                // Mostrar años y meses juntos
+                // Mostrar años y meses juntos, con palabras completas
                 if (meses > 0) {
-                    return `${años}a ${meses}m`;
+                    return `${años} año${años === 1 ? '' : 's'} ${meses} mes${meses === 1 ? '' : 'es'}`;
                 } else {
-                    return `${años}a`;
+                    return `${años} año${años === 1 ? '' : 's'}`;
                 }
             }
         }
@@ -4387,8 +4468,24 @@
         function calcularEdadEnMeses(fechaNacimiento) {
             const hoy = ahoraElSalvador();
             const nacimiento = parsearFechaLocal(fechaNacimiento);
-            return (hoy.getFullYear() - nacimiento.getFullYear()) * 12 + 
-                   (hoy.getMonth() - nacimiento.getMonth());
+
+            let años = hoy.getFullYear() - nacimiento.getFullYear();
+            let meses = hoy.getMonth() - nacimiento.getMonth();
+
+            // Igual que en calcularEdad(): si todavía no se llega al día del
+            // mes de nacimiento, el mes en curso no cuenta como cumplido.
+            // Sin este ajuste, un niño podía aparecer con un mes de más
+            // (y por lo tanto cambiar de grupo de edad / gráfica) hasta
+            // ~3 semanas ANTES de su cumpleaños real.
+            if (hoy.getDate() < nacimiento.getDate()) {
+                meses--;
+            }
+            if (meses < 0) {
+                años--;
+                meses += 12;
+            }
+
+            return años * 12 + meses;
         }
 
         function calcularEdadesAutomaticas() {
@@ -5772,6 +5869,100 @@
             pt:   'Peso / Talla',
             imc:  'IMC / Edad'
         };
+
+        // El indicador Talla/Edad cambia de NOMBRE exactamente a los 2 años (24
+        // meses), replicando los Anexos oficiales MINSAL: Anexo 2/4 = "Longitud
+        // para la Edad" (0-<2a, medición ACOSTADO); Anexo 3/5 = "Talla para la
+        // Edad" (2-19a, medición DE PIE). La curva/tabla de referencia es la
+        // misma de fondo (el ajuste ya viene incorporado en los datos OMS), así
+        // que esto solo afecta el NOMBRE mostrado, no el cálculo del Z-score.
+        function nombreLHFA(meses) {
+            return (meses != null && meses < 24) ? 'Longitud' : 'Talla';
+        }
+
+        // Devuelve la etiqueta de pestaña de un indicador, ya con el nombre
+        // Longitud/Talla resuelto según la edad (en meses) que corresponda.
+        // Si no se pasa "meses" (o el indicador no es lhfa), se comporta igual
+        // que antes, leyendo directo de TABS_INDICADOR.
+        function etiquetaTabIndicador(ind, meses) {
+            if (ind === 'lhfa') return `${nombreLHFA(meses)} / Edad`;
+            return TABS_INDICADOR[ind];
+        }
+
+        // Igual que arriba, pero en el formato sin espacios que usan las
+        // tablas/badges más compactos (ej. "Talla/Edad", "Longitud/Edad").
+        function etiquetaCompactaIndicador(ind, meses) {
+            if (ind === 'lhfa') return `${nombreLHFA(meses)}/Edad`;
+            return MAPEO_LABELS_INDICADOR[ind] || ind;
+        }
+
+        // Título completo para el encabezado de la gráfica SVG (ej. "GRÁFICA:
+        // LONGITUD PARA LA EDAD"), con el mismo criterio de los 24 meses.
+        function tituloGraficaIndicador(ind, meses) {
+            if (ind === 'lhfa') return `${nombreLHFA(meses)} para la Edad`;
+            return INDICADOR_CONFIG[ind]?.titulo || '';
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // VENTANAS DE EDAD (replican los Anexos MINSAL como "hojas" físicas
+        // separadas, cada una con su propio eje X fijo que arranca en el
+        // punto de corte oficial, no en 0): Anexo 2/4 = 0-<2 años; Anexo 3/5
+        // = 2-<5 años; Anexo 6/7 = 5-19 años. Por defecto, la gráfica SOLO
+        // muestra la ventana del grupo de edad ACTUAL de la persona — para
+        // ver una ventana anterior hace falta el modo histórico.
+        // ═══════════════════════════════════════════════════════════════
+        const VENTANAS_EDAD = {
+            g1: { xMin: 0,  xMax: 24,  meses: 12,  etiqueta: '0 a <2 años' },
+            g2: { xMin: 24, xMax: 60,  meses: 36,  etiqueta: '2 a <5 años' },
+            g3: { xMin: 60, xMax: 239, meses: 120, etiqueta: '5 a 19 años' }
+        };
+
+        function ventanaParaMeses(meses) {
+            if (meses == null || isNaN(meses) || meses < 24) return 'g1';
+            if (meses <= 60) return 'g2';
+            return 'g3';
+        }
+
+        // Ventana de edad "actual" de una persona: la misma edad que usa la
+        // clasificación real (la de su última medición, o su edad de hoy si
+        // todavía no tiene ninguna).
+        function ventanaActualPersona(persona) {
+            return ventanaParaMeses(edadRelevanteOMS(persona));
+        }
+
+        // Etiqueta completa de una "vista" histórica (indicador + ventana),
+        // ej. "Peso / Edad (0 a <2 años)". Para Peso/Talla no aplica ventana
+        // (su eje X es la talla, no la edad), así que se muestra solo.
+        function etiquetaVista(indicador, ventanaId) {
+            if (indicador === 'pt') return 'Peso / Talla';
+            const v = VENTANAS_EDAD[ventanaId];
+            const base = etiquetaTabIndicador(indicador, v ? v.meses : null);
+            return v ? `${base} (${v.etiqueta})` : base;
+        }
+
+        // Lista de "vistas" (indicador + ventana de edad) que tienen datos
+        // históricos reales, replicando cada Anexo MINSAL como una página
+        // seleccionable independiente. A diferencia de indicadoresConDatosHistoricos()
+        // (que solo agrupa por indicador), esta distingue Peso/Edad 0-2a de
+        // Peso/Edad 2-5a, y Talla/Edad en sus 3 posibles ventanas.
+        function vistasHistoricasPersona(persona) {
+            const mediciones = obtenerMedicionesPersona(persona.id);
+            const set = new Set(); // claves "indicador|ventanaId"
+            mediciones.forEach(m => {
+                const meses = m.edadEvaluacion != null
+                    ? m.edadEvaluacion
+                    : edadEnMesesDecimal(persona.fechaNacimiento, m.fecha);
+                if (meses == null || isNaN(meses) || meses >= 240) return;
+                const vId = ventanaParaMeses(meses);
+                indicadoresParaEdadMeses(meses).forEach(ind => set.add(`${ind}|${vId}`));
+            });
+            const orden = ['wfa|g1', 'lhfa|g1', 'wfa|g2', 'lhfa|g2', 'pt|g2', 'lhfa|g3', 'imc|g3'];
+            return orden.filter(k => set.has(k)).map(k => {
+                const [indicador, ventanaId] = k.split('|');
+                return { indicador, ventanaId };
+            });
+        }
+
         function indicadoresParaPersona(persona) {
             // Usa la MISMA edad que se usa para clasificar la última medición
             // (edad corregida si la persona es prematura), no la edad
@@ -5784,12 +5975,35 @@
                 ? (ultima.edadEvaluacion != null ? ultima.edadEvaluacion : edadEnMesesDecimal(persona.fechaNacimiento, ultima.fecha))
                 : calcularEdadEnMeses(persona.fechaNacimiento);
             if (meses < 24) return ['wfa', 'lhfa'];
-            if (meses < 61) return ['wfa', 'lhfa', 'pt'];
+            if (meses <= 60) return ['wfa', 'lhfa', 'pt'];
             if (meses < 240) return ['lhfa', 'imc'];
             // Adultos y adultos mayores (20+ años): no usan indicadores OMS
             // pediátricos (lhfa/imc con Z-score), sino IMC clasificado por
             // categoría adulta (evaluarEstadoNutricional -> esOMS:false).
             return ['imcAdulto'];
+        }
+
+        // Devuelve la UNIÓN de todos los grupos de indicadores (Peso/Edad,
+        // Talla/Edad, Peso/Talla, IMC/Edad) que la persona tuvo aplicables en
+        // ALGÚN MOMENTO de su vida, según la edad que tenía en CADA medición
+        // registrada — a diferencia de indicadoresParaPersona(), que solo
+        // devuelve el grupo del momento actual (o de la última medición).
+        // Esto es lo que permite, por ejemplo, seguir viendo la curva de
+        // Peso/Edad de un niño que ya cumplió 5 años (hoy solo vería
+        // Talla/Edad e IMC/Edad), o la curva pediátrica completa de alguien
+        // que ya cumplió 20 años.
+        function indicadoresConDatosHistoricos(persona) {
+            const mediciones = obtenerMedicionesPersona(persona.id);
+            const set = new Set();
+            mediciones.forEach(m => {
+                const meses = m.edadEvaluacion != null
+                    ? m.edadEvaluacion
+                    : edadEnMesesDecimal(persona.fechaNacimiento, m.fecha);
+                if (meses == null || isNaN(meses) || meses >= 240) return; // fuera de tablas OMS pediátricas
+                indicadoresParaEdadMeses(meses).forEach(ind => set.add(ind));
+            });
+            // Se conserva el orden fijo de las pestañas (wfa, lhfa, pt, imc)
+            return Object.keys(TABS_INDICADOR).filter(ind => set.has(ind));
         }
 
         // Devuelve el detalle de clasificación (label, nivel, z, indicador) del
@@ -5820,13 +6034,13 @@
                 if (d) {
                     const claseAlerta = d.nivel === 'normal' ? 'success' : (d.nivel === 'alerta' ? 'warning' : 'danger');
                     const icono = d.nivel === 'normal' ? '✓' : '⚠';
-                    const nombreInd = MAPEO_LABELS_INDICADOR[indicadorKey] || '';
+                    const nombreInd = etiquetaCompactaIndicador(indicadorKey, clasificacion.meses);
                     return `
                         <div class="alert alert-${claseAlerta}">
                             <span class="alert-icon">${icono}</span>
                             <div>
                                 <strong>${nombreInd}: ${d.label}</strong>
-                                <p>Z = ${d.z.toFixed(2)} · Clasificación OMS/MINSAL 2022${clasificacion.meses <= 60.5 ? ' (0-5 años)' : ' (5-19 años)'}</p>
+                                <p>Z = ${d.z.toFixed(2)} · Clasificación OMS/MINSAL 2022${clasificacion.meses <= 60 ? ' (0-5 años)' : ' (5-19 años)'}</p>
                             </div>
                         </div>
                     `;
@@ -5847,7 +6061,7 @@
             `;
         }
 
-        let curvaEstado = { personaId: '', indicador: 'wfa', origenPersonaId: null };
+        let curvaEstado = { personaId: '', indicador: 'wfa', origenPersonaId: null, modoHistorico: false, ventanaVida: null };
 
         // Devuelve los tramos de tabla LMS (con su mes de inicio) necesarios para dibujar
         // un indicador hasta 'xMax' meses. Cada indicador puede tener un tramo 0-5 años
@@ -5990,8 +6204,8 @@
 
         // Calcula la ventana {xMin, xMax} visible según el factor de zoom y el
         // centro actual, respetando siempre los límites del rango completo.
-        function calcularVentanaZoom(persona, indicador) {
-            const full = rangoCompletoIndicador(persona, indicador);
+        function calcularVentanaZoom(persona, indicador, ventanaVidaId) {
+            const full = rangoCompletoIndicador(persona, indicador, ventanaVidaId);
             if (curvaZoom.factor <= 1.001) { curvaZoom.centro = null; return null; }
             const spanFull = full.xMax - full.xMin;
             const spanVisible = spanFull / curvaZoom.factor;
@@ -6010,12 +6224,12 @@
         function renderGraficaZoom() {
             const persona = personaCurvaActual();
             if (!persona) return;
-            if (personaFueraDeRangoOMS(persona)) return; // renderPanelCurvas ya mostró el aviso; no hay gráfica que dibujar
-            const ventana = calcularVentanaZoom(persona, curvaEstado.indicador);
+            if (!curvaEstado.modoHistorico && personaFueraDeRangoOMS(persona)) return; // renderPanelCurvas ya mostró el aviso; no hay gráfica que dibujar
+            const ventana = calcularVentanaZoom(persona, curvaEstado.indicador, curvaEstado.ventanaVida);
 
             const zoomInner = document.getElementById('curvaZoomInner');
             if (zoomInner) {
-                zoomInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana);
+                zoomInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana, null, curvaEstado.ventanaVida);
                 setTimeout(() => agregarInteractividadPuntos(zoomInner), 200);
             }
 
@@ -6028,7 +6242,7 @@
                 const w = fsWrap.clientWidth || 390;
                 const h = fsWrap.clientHeight || 700;
                 const H = Math.max(420, Math.min(1400, Math.round(720 * (h / w))));
-                fsInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana, { W: 720, H });
+                fsInner.innerHTML = generarGraficaSVG(persona, curvaEstado.indicador, ventana, { W: 720, H }, curvaEstado.ventanaVida);
                 setTimeout(() => agregarInteractividadPuntos(fsInner), 200);
             }
             actualizarHeaderFullscreen(persona);
@@ -6084,7 +6298,7 @@
                 curvaPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
                 const persona = personaCurvaActual();
                 if (!persona) return;
-                const full = rangoCompletoIndicador(persona, curvaEstado.indicador);
+                const full = rangoCompletoIndicador(persona, curvaEstado.indicador, curvaEstado.ventanaVida);
 
                 if (curvaPointers.size === 2) {
                     const pts = [...curvaPointers.values()];
@@ -6162,16 +6376,24 @@
 
         // Determina el rango completo (sin zoom) del eje X para un indicador y persona:
         // en meses de edad para wfa/lhfa/imc, o en cm de talla para pt (Peso/Talla).
-        function rangoCompletoIndicador(persona, indicador) {
+        // Determina el rango completo (sin zoom) del eje X para un indicador y persona.
+        // "ventanaVidaId" (opcional) fuerza una ventana de edad específica (g1/g2/g3,
+        // usada por el modo histórico); si se omite, se usa automáticamente la ventana
+        // del grupo de edad ACTUAL de la persona — así el eje X SIEMPRE arranca en el
+        // punto de corte oficial (0, 2 o 5 años), replicando cada Anexo MINSAL como
+        // una "hoja" independiente, en vez de una sola curva continua 0-19 años.
+        function rangoCompletoIndicador(persona, indicador, ventanaVidaId) {
             if (indicador === 'pt') {
                 const tabla = tablaSexo(WFH_B, WFH_G, persona.sexo);
                 return { xMin: tabla[0][0], xMax: tabla[tabla.length - 1][0] };
             }
             const cfg = INDICADOR_CONFIG[indicador];
             if (!cfg) return { xMin: 0, xMax: 228 }; // resguardo: indicador desconocido (p.ej. adulto fuera de rango)
-            const edadActualMeses = edadEnMesesDecimal(persona.fechaNacimiento);
-            const xMax = Math.min(cfg.maxMeses, edadActualMeses > 60 ? cfg.maxMeses : 60);
-            return { xMin: 0, xMax };
+            const vId = ventanaVidaId || ventanaActualPersona(persona);
+            // Peso/Edad no existe en la ventana 5-19 años (MINSAL usa IMC/Edad ahí);
+            // si se pide por error, se limita a su último tramo válido (2-<5 años).
+            const v = (indicador === 'wfa' && vId === 'g3') ? VENTANAS_EDAD.g2 : (VENTANAS_EDAD[vId] || VENTANAS_EDAD.g1);
+            return { xMin: v.xMin, xMax: Math.min(v.xMax, cfg.maxMeses) };
         }
 
         // Elige el espaciado de las marcas del eje X (mayor y menor) según cuántos
@@ -6207,12 +6429,21 @@
             return `<div class="mini-chart-scroll"><div class="mini-chart-inner">${svgHtml}</div></div>`;
         }
 
-        function generarGraficaSVG(persona, indicador, ventana, dims) {
+        // Devuelve los "meses" representativos a usar para las etiquetas
+        // Longitud/Talla: si hay una ventana de vida explícita (modo histórico),
+        // usa la edad representativa de ESA ventana (no la edad de hoy), para que
+        // el título/etiqueta corresponda a lo que se está viendo, no a la edad actual.
+        function mesesParaEtiquetaVentana(persona, ventanaVidaId) {
+            if (ventanaVidaId && VENTANAS_EDAD[ventanaVidaId]) return VENTANAS_EDAD[ventanaVidaId].meses;
+            return edadRelevanteOMS(persona);
+        }
+
+        function generarGraficaSVG(persona, indicador, ventana, dims, ventanaVidaId) {
             const cfg = INDICADOR_CONFIG[indicador];
             const zLevels = [-3, -2, -1, 0, 1, 2, 3];
 
             const mediciones = obtenerMedicionesPersona(persona.id).slice().reverse();
-            const rangoFull = rangoCompletoIndicador(persona, indicador);
+            const rangoFull = rangoCompletoIndicador(persona, indicador, ventanaVidaId);
             // xMin/xMax representan la ventana VISIBLE actual (puede ser un zoom parcial);
             // esMayor5 siempre se basa en el rango completo de la persona (no cambia con el zoom).
             const xMin = ventana && ventana.xMin != null ? Math.max(rangoFull.xMin, ventana.xMin) : rangoFull.xMin;
@@ -6237,6 +6468,18 @@
             let yMin = Infinity, yMax = -Infinity;
             zLevels.forEach(z => curva[z].forEach(p => { yMin = Math.min(yMin, p[1]); yMax = Math.max(yMax, p[1]); }));
 
+            // Ventana de edad que se está mostrando ahora mismo (0-<2a / 2-<5a /
+            // 5-19a), usada para filtrar los puntos por su ventana REAL en vez de
+            // solo por su coordenada redondeada en el eje X. Sin esto, una
+            // medición tomada uno o dos días antes de un cumpleaños que cambia de
+            // grupo (ej. 59.97 meses) podía redondear justo al mismo mes que el
+            // borde de la ventana siguiente (60) y "colarse" visualmente en la
+            // gráfica del grupo de edad al que todavía no pertenecía — o viceversa,
+            // una medición ya del grupo nuevo colándose en la gráfica del grupo
+            // anterior. El mismo riesgo existe en el límite de los 24 meses
+            // (0-<2a / 2-<5a), no solo en el de los 5 años.
+            const ventanaEfectiva = ventanaVidaId || ventanaActualPersona(persona);
+
             const puntos = mediciones.map(m => {
                 const meses = edadEnMesesDecimal(persona.fechaNacimiento, m.fecha);
                 // Usar edad corregida si es prematuro, sino edad cronológica
@@ -6251,6 +6494,21 @@
                 if (x == null || y == null || isNaN(x) || isNaN(y)) return null;
                 const z = zParaMedicion(indicador, persona, m, meses);
                 if (z == null || isNaN(z)) return null;
+                // Filtro por ventana REAL (no redondeada): descarta mediciones que
+                // técnicamente pertenecen a otro grupo de edad, aunque su coordenada
+                // redondeada caiga dentro del rango visible por casualidad.
+                // Peso/Talla es un caso aparte: su eje X es la TALLA, no la edad,
+                // así que no tiene "ventana visible" como wfa/lhfa/imc — pero según
+                // la Tabla 2 (Acuerdo N°2827) solo aplica al grupo 2-<5 años. Sin
+                // este chequeo, una medición de otra etapa (con peso y talla
+                // registrados) podía colarse en la gráfica de Peso/Talla con solo
+                // caer dentro del rango de centímetros visible, aunque esa persona
+                // ya no estuviera (o todavía no estuviera) en el grupo 2-<5 años.
+                if (indicador === 'pt') {
+                    if (ventanaParaMeses(edadEvaluacion) !== 'g2') return null;
+                } else if (ventanaParaMeses(edadEvaluacion) !== ventanaEfectiva) {
+                    return null;
+                }
                 return { x, y, z, fecha: m.fecha, peso: m.peso };
             }).filter(p => p && p.x >= xMin && p.x <= xMax);
 
@@ -6397,8 +6655,15 @@
                 ? `<text x="${W/2}" y="${(H + padT)/2}" font-size="13" fill="#9ca3af" text-anchor="middle">Sin talla registrada para este indicador</text>`
                 : (puntos.length === 0 ? `<text x="${W/2}" y="${(H + padT)/2}" font-size="13" fill="#9ca3af" text-anchor="middle">Sin mediciones en este rango</text>` : '');
 
-            const tituloOficial = `GRÁFICA: ${cfg.titulo.toUpperCase()}`;
-            const rangoEdadTxt = esMayor5 ? 'Y ADOLESCENTES DE 5 A 19 AÑOS' : (indicador === 'pt' ? 'DE 2 A 5 AÑOS' : 'DE 0 A 5 AÑOS');
+            const tituloOficial = `GRÁFICA: ${tituloGraficaIndicador(indicador, mesesParaEtiquetaVentana(persona, ventanaVidaId)).toUpperCase()}`;
+            // Subtítulo de rango de edad: replica el texto exacto de cada Anexo
+            // MINSAL según la ventana efectiva (0-24m / 2-<5a / 5-19a), no un
+            // genérico "0 a 5 años" para toda la niñez.
+            let rangoEdadTxt;
+            if (indicador === 'pt') rangoEdadTxt = 'DE 2 A MENOR DE 5 AÑOS';
+            else if (ventanaEfectiva === 'g1') rangoEdadTxt = 'DE 0 A 24 MESES';
+            else if (ventanaEfectiva === 'g2') rangoEdadTxt = 'DE 2 A MENOR DE 5 AÑOS';
+            else rangoEdadTxt = 'Y ADOLESCENTES DE 5 A 19 AÑOS';
             const subtitulo = `${persona.sexo === 'femenino' ? 'NIÑAS' : 'NIÑOS'} ${rangoEdadTxt} · Ministerio de Salud / MINSAL 2022`;
             const headerH = padT; // alto de la franja de encabezado de color
             // ID único por render (no solo por indicador): el gráfico normal y el de
@@ -6673,25 +6938,80 @@
         // el que estaba activo ya no aplica a esta persona (p.ej. venía de "Peso/Edad"
         // y se elige a alguien de 6 años, donde ese indicador no existe).
         function actualizarTabsIndicador(persona) {
-            const disponibles = (persona && !personaFueraDeRangoOMS(persona)) ? indicadoresParaPersona(persona) : [];
-            if (disponibles.length && !disponibles.includes(curvaEstado.indicador)) {
-                curvaEstado.indicador = disponibles[0];
+            let botonesHtml = () => '';
+            let activo = { ind: null, ventana: null };
+
+            if (persona) {
+                if (curvaEstado.modoHistorico) {
+                    // Modo histórico: una pestaña por cada "vista" (indicador +
+                    // ventana de edad) con datos reales, replicando cada Anexo
+                    // MINSAL como página independiente (incluye también la
+                    // ventana actual, para no obligar a salir del modo histórico
+                    // solo para comparar contra el grupo de edad vigente).
+                    const vistas = vistasHistoricasPersona(persona);
+                    if (vistas.length && !vistas.some(v => v.indicador === curvaEstado.indicador && v.ventanaId === curvaEstado.ventanaVida)) {
+                        curvaEstado.indicador = vistas[0].indicador;
+                        curvaEstado.ventanaVida = vistas[0].ventanaId;
+                    }
+                    activo = { ind: curvaEstado.indicador, ventana: curvaEstado.ventanaVida };
+                    botonesHtml = (claseBtn) => vistas.map(v =>
+                        `<button type="button" class="${claseBtn}" data-ind="${v.indicador}" data-ventana="${v.ventanaId}" onclick="cambiarIndicadorCurva('${v.indicador}','${v.ventanaId}')">${etiquetaVista(v.indicador, v.ventanaId)}</button>`
+                    ).join('');
+                } else if (!personaFueraDeRangoOMS(persona)) {
+                    // Vista normal: solo el grupo de edad ACTUAL de la persona.
+                    const disponibles = indicadoresParaPersona(persona);
+                    if (disponibles.length && !disponibles.includes(curvaEstado.indicador)) {
+                        curvaEstado.indicador = disponibles[0];
+                    }
+                    curvaEstado.ventanaVida = null; // siempre automática (grupo actual) en vista normal
+                    const mesesActuales = edadRelevanteOMS(persona);
+                    activo = { ind: curvaEstado.indicador, ventana: null };
+                    botonesHtml = (claseBtn) => disponibles.map(ind =>
+                        `<button type="button" class="${claseBtn}" data-ind="${ind}" onclick="cambiarIndicadorCurva('${ind}')">${etiquetaTabIndicador(ind, mesesActuales)}</button>`
+                    ).join('');
+                }
             }
-            const botonesHtml = (claseBtn) => disponibles.map(ind =>
-                `<button type="button" class="${claseBtn}" data-ind="${ind}" onclick="cambiarIndicadorCurva('${ind}')">${TABS_INDICADOR[ind]}</button>`
-            ).join('');
 
             const tabsNormal = document.getElementById('curvaTabs');
             if (tabsNormal) tabsNormal.innerHTML = botonesHtml('ind-tab');
             const tabsFs = document.getElementById('curvaFullscreenTabs');
             if (tabsFs) tabsFs.innerHTML = botonesHtml('ind-tab-fs');
 
-            document.querySelectorAll('#curvaTabs .ind-tab').forEach(b => b.classList.toggle('active', b.dataset.ind === curvaEstado.indicador));
-            document.querySelectorAll('#curvaFullscreenTabs .ind-tab-fs').forEach(b => b.classList.toggle('active', b.dataset.ind === curvaEstado.indicador));
+            document.querySelectorAll('#curvaTabs .ind-tab').forEach(b => b.classList.toggle('active', b.dataset.ind === activo.ind && (b.dataset.ventana || null) === activo.ventana));
+            document.querySelectorAll('#curvaFullscreenTabs .ind-tab-fs').forEach(b => b.classList.toggle('active', b.dataset.ind === activo.ind && (b.dataset.ventana || null) === activo.ventana));
+        }
+
+        // Activa/desactiva el modo "historial por grupo de edad": permite ver
+        // las pestañas y curvas de indicadores que la persona ya "dejó atrás"
+        // (p. ej. Peso/Edad de cuando tenía 0-2 años, aunque hoy ya tenga 6,
+        // o toda la curva pediátrica de alguien que ya cumplió 20), en vez de
+        // limitarse solo al grupo de edad vigente hoy.
+        function toggleHistoricoCurva() {
+            curvaEstado.modoHistorico = !curvaEstado.modoHistorico;
+            if (!curvaEstado.modoHistorico) curvaEstado.ventanaVida = null; // volver a automática
+            const persona = DB.personas.find(p => p.id === curvaEstado.personaId);
+            actualizarTabsIndicador(persona);
+            renderPanelCurvas();
+        }
+
+        // Dibuja el botón de alternancia arriba de las pestañas de indicador,
+        // solo si la persona ya tiene al menos una medición registrada.
+        function renderHistoricoToggle(persona) {
+            const wrap = document.getElementById('curvaHistoricoToggleWrap');
+            if (!wrap) return;
+            if (!persona || !obtenerMedicionesPersona(persona.id).length) {
+                wrap.innerHTML = '';
+                return;
+            }
+            wrap.innerHTML = curvaEstado.modoHistorico
+                ? `<button type="button" class="btn btn-secondary" style="width:100%; margin-bottom:0.6rem;" onclick="toggleHistoricoCurva()">↩ Volver a la vista del grupo de edad actual</button>`
+                : `<button type="button" class="btn btn-curva-nav" style="width:100%; margin-bottom:0.6rem;" onclick="toggleHistoricoCurva()">🕘 Ver historial por grupo de edad</button>`;
         }
 
         function cambiarPersonaCurva() {
             curvaEstado.personaId = document.getElementById('curvaPersona').value;
+            curvaEstado.modoHistorico = false; // al cambiar de persona, siempre inicia en la vista actual
+            curvaEstado.ventanaVida = null;
             const persona = DB.personas.find(p => p.id === curvaEstado.personaId);
             actualizarTabsIndicador(persona);
             renderPanelCurvas();
@@ -6700,10 +7020,11 @@
             actualizarChipCurvaPersona();
         }
 
-        function cambiarIndicadorCurva(indicador) {
+        function cambiarIndicadorCurva(indicador, ventanaVidaId) {
             curvaEstado.indicador = indicador;
-            document.querySelectorAll('#curvaTabs .ind-tab').forEach(b => b.classList.toggle('active', b.dataset.ind === indicador));
-            document.querySelectorAll('#curvaFullscreenTabs .ind-tab-fs').forEach(b => b.classList.toggle('active', b.dataset.ind === indicador));
+            curvaEstado.ventanaVida = curvaEstado.modoHistorico ? (ventanaVidaId || null) : null;
+            document.querySelectorAll('#curvaTabs .ind-tab').forEach(b => b.classList.toggle('active', b.dataset.ind === indicador && (b.dataset.ventana || null) === (curvaEstado.ventanaVida)));
+            document.querySelectorAll('#curvaFullscreenTabs .ind-tab-fs').forEach(b => b.classList.toggle('active', b.dataset.ind === indicador && (b.dataset.ventana || null) === (curvaEstado.ventanaVida)));
             renderPanelCurvas();
         }
 
@@ -6734,7 +7055,7 @@
             badgeEl.style.display = 'inline-block';
             badgeEl.style.background = col.bg;
             badgeEl.style.color = col.texto;
-            badgeEl.textContent = dInd ? `${TABS_INDICADOR[curvaEstado.indicador]}: ${dInd.label} (Z=${dInd.z.toFixed(2)})` : c.estado;
+            badgeEl.textContent = dInd ? `${etiquetaTabIndicador(curvaEstado.indicador, mesesParaEtiquetaVentana(persona, curvaEstado.ventanaVida))}: ${dInd.label} (Z=${dInd.z.toFixed(2)})` : c.estado;
         }
 
         function abrirPantallaCompletaCurva() {
@@ -6817,14 +7138,33 @@
                 resumen.innerHTML = '';
                 badges.innerHTML = '';
                 tablaZ.innerHTML = '';
+                renderHistoricoToggle(null);
                 return;
             }
 
             const persona = DB.personas.find(p => p.id === curvaEstado.personaId);
             if (!persona) return;
 
-            if (personaFueraDeRangoOMS(persona)) {
+            renderHistoricoToggle(persona);
+
+            // El bloqueo de "fuera de rango" solo aplica a la vista del grupo de
+            // edad ACTUAL. En modo histórico, si la persona tiene mediciones
+            // pediátricas de cuando sí estaba dentro del rango OMS (0-19 años),
+            // se le sigue permitiendo ver esas curvas aunque hoy ya tenga 20+.
+            if (!curvaEstado.modoHistorico && personaFueraDeRangoOMS(persona)) {
                 const mensaje = `<div class="empty-state" style="box-shadow:none; margin:0;"><div class="empty-state-icon">📈</div><h3>Fuera de rango OMS</h3><p><strong>${persona.nombre}</strong> (${persona.edadActual}) está fuera del rango de las curvas de crecimiento OMS/MINSAL (0–19 años). Puedes ver su IMC y estado nutricional en su perfil.</p></div>`;
+                zoomInner.innerHTML = mensaje;
+                const fsInner = document.getElementById('curvaFullscreenInner');
+                if (fsInner) fsInner.innerHTML = mensaje;
+                resumen.innerHTML = '';
+                badges.innerHTML = '';
+                tablaZ.innerHTML = '';
+                btnWrap.innerHTML = '';
+                return;
+            }
+
+            if (curvaEstado.modoHistorico && !indicadoresConDatosHistoricos(persona).length) {
+                const mensaje = `<div class="empty-state" style="box-shadow:none; margin:0;"><div class="empty-state-icon">📈</div><h3>Sin historial pediátrico</h3><p><strong>${persona.nombre}</strong> no tiene mediciones registradas dentro del rango OMS/MINSAL (0-19 años) para mostrar en el historial.</p></div>`;
                 zoomInner.innerHTML = mensaje;
                 const fsInner = document.getElementById('curvaFullscreenInner');
                 if (fsInner) fsInner.innerHTML = mensaje;
@@ -6854,7 +7194,7 @@
                 // (Peso/Edad, Talla/Edad, Peso/Talla o IMC/Edad) — ya no un estado fijo.
                 const dInd = detalleParaIndicador(c, curvaEstado.indicador);
                 const colInd = dInd ? (colores[dInd.nivel] || colores.normal) : col;
-                const nombreIndicador = TABS_INDICADOR[curvaEstado.indicador] || '';
+                const nombreIndicador = etiquetaTabIndicador(curvaEstado.indicador, mesesParaEtiquetaVentana(persona, curvaEstado.ventanaVida)) || '';
 
                 resumen.innerHTML = `
                     <div style="background:${colInd.bg}; border-left:4px solid ${colInd.border}; border-radius:8px; padding:1rem; margin-bottom:1rem;">
@@ -6867,7 +7207,7 @@
                             `}
                         </strong>
                         ${dInd ? `<div style="color:${colInd.texto}; font-size:0.85rem; margin-top:2px;">Z = ${dInd.z.toFixed(2)}</div>` : ''}
-                        <div style="color:${colInd.texto}; font-size:0.85rem; margin-top:2px;">Clasificación OMS/MINSAL 2022${c.meses != null && c.meses <= 60.5 ? ' (0-5 años)' : (c.meses != null && c.meses < 240 ? ' (5-19 años)' : '')}</div>
+                        <div style="color:${colInd.texto}; font-size:0.85rem; margin-top:2px;">Clasificación OMS/MINSAL 2022${c.meses != null && c.meses <= 60 ? ' (0-5 años)' : (c.meses != null && c.meses < 240 ? ' (5-19 años)' : '')}</div>
                     </div>
                 `;
             }
@@ -7043,6 +7383,15 @@
             const persona = DB.personas.find(p => p.id === personaId);
             if (!persona) return;
 
+            // El perfil es un modal que se superpone sobre el panel que esté
+            // activo en ese momento. Antes, si se llegaba aquí desde "Editar
+            // Medición" o "Registrar Medición" (que cambian el panel activo a
+            // 'medicion'), ese panel se quedaba detrás para siempre — al
+            // cerrar el modal con la X, aparecía el formulario vacío en vez
+            // de la lista de Personas. Ahora se fuerza siempre el panel de
+            // fondo a "Personas", sin importar desde dónde se abrió el perfil.
+            mostrarPanel('personas');
+
             const mediciones = obtenerMedicionesPersona(personaId);
             const ultimaMedicion = mediciones[0];
             
@@ -7096,14 +7445,9 @@
                         <div class="mini-chart-tabs">
                             ${(() => {
                                 const indicadores = indicadoresParaPersona(persona);
-                                const mapeoLabels = {
-                                    'wfa': 'Peso/Edad',
-                                    'lhfa': 'Talla/Edad',
-                                    'pt': 'Peso/Talla',
-                                    'imc': 'IMC/Edad'
-                                };
+                                const mesesActuales = edadEnMesesDecimal(persona.fechaNacimiento);
                                 return indicadores.map((ind, idx) => {
-                                    const label = mapeoLabels[ind];
+                                    const label = etiquetaCompactaIndicador(ind, mesesActuales);
                                     const esActivo = idx === 0 ? 'class="active"' : '';
                                     const deshabilitado = (ind === 'lhfa' || ind === 'pt' || ind === 'imc') && !tieneTalla ? 'disabled title="Requiere talla registrada"' : '';
                                     return `<button ${esActivo} ${deshabilitado} onclick="cambiarMiniChart('${persona.id}','${ind}',this)">${label}</button>`;
@@ -7111,7 +7455,7 @@
                             })()}
                         </div>
                         <div id="miniChartContainer"></div>
-                        <button class="btn btn-secondary" style="margin-top:0.8rem; width:100%;" onclick="irACurva('${persona.id}')">📈 Ver curva completa</button>
+                        <button class="btn btn-curva-nav" style="margin-top:0.8rem; width:100%;" onclick="irACurva('${persona.id}')">📈 Ver curva completa</button>
                     </div>
                     `;
                 }
@@ -7149,9 +7493,10 @@
 
             if (mediciones.length > 0) {
                 const indicadoresPermitidos = indicadoresParaPersona(persona);
+                const mesesActualesTabla = edadEnMesesDecimal(persona.fechaNacimiento);
                 const mapeoLabels = {
                     'wfa': 'Z Peso/Edad',
-                    'lhfa': 'Z Talla/Edad',
+                    'lhfa': `Z ${etiquetaCompactaIndicador('lhfa', mesesActualesTabla)}`,
                     'pt': 'Z Peso/Talla',
                     'imc': 'IMC / Z (IMC/E)',
                     'imcAdulto': 'IMC'
@@ -8077,4 +8422,3 @@
 
 </body>
 </html>
-
