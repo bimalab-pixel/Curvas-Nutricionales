@@ -6489,7 +6489,13 @@
                 // "9m", "1a 11m"... o, en Peso/Talla, la misma talla en cm), en vez de
                 // quedar ligeramente desplazado por los decimales del valor exacto.
                 // La clasificación (Z, estado) sigue usando el valor exacto sin redondear.
-                const x = indicador === 'pt' ? Math.round(m.talla) : Math.round(edadEvaluacion);
+                // Se "sujeta" (clamp) al rango real de la ventana: una medición tomada a
+                // muy pocos días de cumplir el siguiente umbral (ej. 239.97 meses, un día
+                // antes de cumplir 20 años) redondea hacia arriba (240) y sin este ajuste
+                // quedaba fuera del eje X visible (que llega hasta 239 = 19a 11m), aunque
+                // la medición sí pertenece a esta ventana — el punto simplemente desaparecía.
+                let x = indicador === 'pt' ? Math.round(m.talla) : Math.round(edadEvaluacion);
+                if (indicador !== 'pt') x = Math.min(rangoFull.xMax, Math.max(rangoFull.xMin, x));
                 const y = valorMedicionParaIndicador(indicador, m);
                 if (x == null || y == null || isNaN(x) || isNaN(y)) return null;
                 const z = zParaMedicion(indicador, persona, m, meses);
