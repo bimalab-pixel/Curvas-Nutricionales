@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vigilancia-nutricional-v6';
+const CACHE_NAME = 'vigilancia-nutricional-v7';
 const ASSETS_TO_CACHE = [
   'index.html',
   'manifest.json',
